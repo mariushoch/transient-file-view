@@ -1,0 +1,158 @@
+#!/bin/bash
+
+function silent {
+	"$@" >/dev/null 2>&1
+	return $?
+}
+
+function usage {
+	echo "Transient Folder Snapshot 0.0.1"
+	echo "Usage: $(basename "$0") [--help] [--verbose|--debug] directory [directory]* -- command"
+	echo
+	echo "Make a transient snapshot of a directory in a user namespace. This creates a new mount namespace, mounts tmpfs"
+	echo "over the given directories and rsyncs the original directory content into the new (temporary) mounts."
+	echo
+	echo -e "\t--help			Show this help"
+	echo -e "\t--verbose		Print verbose debugging info"
+	echo -e "\t--debug			Show all debug information (implies --verbose)"
+	echo -e "\tdirectory		directories to be snapshotted"
+	echo
+	echo "Directories can be given using the following syntax:"
+	echo -e "\tpath/of/the/directory[,nopreserveowner][,nopreservegroup][,exclude=PATTERN]*"
+	echo -e "\t\"exclude\" PATTERN is passed to \"rsync\" to determine which files not to sync into the snapshot"
+	echo -e "\t\t(rsync --exclude), can be given multiple times."
+	echo -e "\t\"nopreserveowner\" can be used to instruct rsync to not preserve file ownership (don't pass rsync -o)."
+	echo -e "\t\"nopreservegroup\" can be used to instruct rsync to not preserve file group (don't pass rsync -g)."
+}
+
+if [ "$1" == "--help" ]; then
+	usage
+	exit
+fi
+if [ "$#" -lt 3 ]; then
+	echo "Error: Expected at least 3 arguments!"
+	echo
+
+	usage
+	exit 1
+fi
+
+if [ ! "$1" == "--postwrap" ]; then
+	SELF_PATH="$(realpath "$0")"
+	if [ ! -f "$SELF_PATH" ]; then
+		echo "Error: Could not locate own location (needed for wrapped execution)."
+	
+		exit 255
+	fi
+	exec unshare -r -m \
+		/bin/bash "$SELF_PATH" --postwrap --uid "$(id -u)" --gid "$(id -g)" "$@"
+fi
+
+# Handle the parameters added programmatically, these should always be in the very same form.
+if [ ! "$2" == "--uid" ] || [ ! "$4" == "--gid" ]; then
+	echo "Error: Invalid postwrap call signature."
+
+	exit 255
+fi
+MAP_USER="$3"
+MAP_GROUP="$5"
+shift 5
+
+VERBOSE=0
+DEBUG=0
+DIRECTORIES=()
+
+while [ ! "$1" == "--" ]; do
+	case "$1" in
+		--debug)
+			VERBOSE=1
+			DEBUG=1
+			shift
+		;;
+		--verbose)
+			VERBOSE=1
+			shift
+		;;
+		*)
+			DIRECTORIES+=("$1")
+			shift
+		;;
+	esac
+done
+
+for DIRECTORY in "${DIRECTORIES[@]}"; do
+	FOLDER="$(realpath "$(echo "$DIRECTORY" | grep -oP '^.*?(?=,exclude=.|,nopreserveowner|,nopreservegroup|$)')")"
+	if [ ! -d "$FOLDER" ]; then
+		echo "Error: Could not find folder $FOLDER for snapshotting."
+
+		exit 1
+	fi
+
+	# This is equal to rsync -a (but -g and -o)
+	RSYNC_ARGS=("-rlptD")
+	if [[ ! "$DIRECTORY" =~ ,nopreservegroup(,|$) ]]; then
+		RSYNC_ARGS+=("-g")
+	fi
+	if [[ ! "$DIRECTORY" =~ ,nopreserveowner(,|$) ]]; then
+		RSYNC_ARGS+=("-o")
+	fi
+
+	while read -r exclude; do
+		RSYNC_ARGS+=("--exclude" "$exclude")
+	done < <(
+		echo "$DIRECTORY" | \
+			grep -oP '(?<=,exclude=).*?(,exclude=|,nopreserveowner|,nopreservegroup|$)' | \
+			sed -E 's/(,exclude=|,nopreserveowner|,nopreservegroup)$//')
+
+	tmpdir="$(mktemp -d)"
+	RSYNC_ARGS+=("$tmpdir/" "$FOLDER")
+
+	if [ "$DEBUG" -gt 0 ]; then
+		echo "Acting on folder \"$FOLDER\"."
+	fi
+
+	function clean {
+		umount "$tmpdir" 2>/dev/null
+		rmdir "$tmpdir"
+	}
+	MOUNT_OUT="$(mount --bind -o ro "$FOLDER" "$tmpdir" 2>&1)"
+	MOUNT_STATUS=$?
+	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
+		if [ "$VERBOSE" -gt 0 ]; then
+			echo "Warning: mount --bind partially failed: $MOUNT_OUT"
+		fi
+	elif [ $MOUNT_STATUS -gt 0 ]; then
+		echo "Error: mount --bind failed: $MOUNT_OUT"
+		clean
+		exit 255
+	fi
+	if ! MOUNT_OUT="$(mount -n -t tmpfs tmpfs "$FOLDER" 2>&1)"; then
+		echo "Error: Mounting tmpfs to \"$FOLDER\": $MOUNT_OUT"
+		clean
+		exit 255
+	fi
+
+	if [ "$DEBUG" -gt 0 ]; then
+		RSYNC_ARGS+=("--progress")
+		echo "Running: rsync ${RSYNC_ARGS[*]}"
+	fi
+
+	RSYNC_WRAP=""
+	if [ "$VERBOSE" -eq 0 ]; then
+		RSYNC_WRAP="silent"
+	fi
+	if ! $RSYNC_WRAP rsync "${RSYNC_ARGS[@]}"; then
+		echo "Error: rsync to create the snapshot failed."
+		clean
+		exit 255
+	fi
+
+	clean
+done
+
+if ! cd "$(pwd)"; then
+	echo "Error: Failed to cd back to old working directory."
+	exit 1
+fi
+
+exec unshare --map-user "$MAP_USER" --map-group "$MAP_GROUP" "$@"

@@ -1,0 +1,12 @@
+name: Test
+on: push
+
+jobs:
+  run_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install test dependencies
+        run: sudo apt-get install shellcheck bats
+      - name: run test.sh
+        run: sh test.sh
