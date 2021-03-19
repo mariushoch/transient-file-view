@@ -121,6 +121,10 @@
 	[ "$status" -eq 255 ]
 }
 @test "transient-folder-snapshot: Map user/gid" {
+	if [[ ! "$(unshare --help)" =~ --map-user ]]; then
+		# Needs unshare with --map-user/--map-group support.
+		skip
+	fi
 	tmpdir="$(mktemp -d)"
 
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- id -u
