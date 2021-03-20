@@ -155,9 +155,11 @@ if ! cd "$(pwd)"; then
 	exit 1
 fi
 
+
 UNSHARE_ARGS=()
 if [[ "$(unshare --help)" =~ --map-user ]]; then
-	UNSHARE_ARGS=(--map-user "$MAP_USER" --map-group "$MAP_GROUP")
+	# Map us back to the original user, if unshare supports this
+	UNSHARE_ARGS=(unshare --map-user "$MAP_USER" --map-group "$MAP_GROUP")
 fi
 
-exec unshare "${UNSHARE_ARGS[@]}" "$@"
+exec "${UNSHARE_ARGS[@]}" "$@"
