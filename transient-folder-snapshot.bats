@@ -136,7 +136,7 @@
 
 	rm -rf "$tmpdir"
 }
-@test "transient-folder-snapshot: Argument parsing (exclude, nopreservegroup and nopreserveowner)" {
+@test "transient-folder-snapshot: Argument parsing (exclude, nopreservegroup, nopreserveowner and toleratepartialtransfer)" {
 	rm -f /tmp/transient-folder-snapshot.log
 	tmpdir="$(mktemp -d)"
 	tmpbindir="$(mktemp -d)"
@@ -152,6 +152,8 @@
 		"$tmpdir" \
 		"$tmpdir,exclude=Blah blub" \
 		"$tmpdir,exclude=a*,nopreserveowner,exclude=blah" \
+		"$tmpdir,exclude=meh,toleratepartialtransfer,nopreserveowner" \
+		"$tmpdir,exclude=meh,nopreserveowner,toleratepartialtransfer" \
 		-- true
 
 	[ "$status" -eq 0 ]
@@ -159,13 +161,15 @@
 
 	run cat /tmp/transient-folder-snapshot.log
 	rm -f /tmp/transient-folder-snapshot.log
-	
+
 	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ / ]]
 	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ -o\ / ]]
 	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ -g\ / ]]
 	[[ "${lines[3]}" =~ ^rsync\ -rlptD\ -g\ -o\ / ]]
 	[[ "${lines[4]}" =~ ^rsync\ -rlptD\ -g\ -o\ --exclude\ Blah\ blub\ / ]]
 	[[ "${lines[5]}" =~ ^rsync\ -rlptD\ -g\ --exclude\ a\*\ --exclude\ blah\ / ]]
+	[[ "${lines[6]}" =~ ^rsync\ -rlptD\ -g\ --exclude\ meh\ / ]]
+	[[ "${lines[7]}" =~ ^rsync\ -rlptD\ -g\ --exclude\ meh\ / ]]
 
 	rm -rf "$tmpdir" "$tmpbindir"
 }
@@ -244,4 +248,24 @@
 	[[ "$output" =~ to-chk ]]
 
 	rm -rf "$tmpdir"
+}
+@test "transient-folder-snapshot: toleratepartialtransfer" {
+	tmpdir="$(mktemp -d)"
+
+	tmpbindir="$(mktemp -d)"
+	{
+		echo '#!/bin/bash'
+		echo 'exit 23'
+	} > "$tmpbindir"/rsync
+	chmod +x "$tmpbindir"/rsync
+
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- true
+	[ "$status" -eq 255 ]
+	[ "$output" == "Error: rsync to create the snapshot failed." ]
+
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,toleratepartialtransfer" -- true
+	[ "$status" -eq 0 ]
+	[ "$output" == "" ]
+
+	rm -rf "$tmpdir" "$tmpbindir"
 }

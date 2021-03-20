@@ -6,7 +6,7 @@ function silent {
 }
 
 function usage {
-	echo "Transient Folder Snapshot 0.0.1"
+	echo "Transient Folder Snapshot 0.1.0"
 	echo "Usage: $(basename "$0") [--help] [--verbose|--debug] directory [directory]* -- command"
 	echo
 	echo "Make a transient snapshot of a directory in a user namespace. This creates a new mount namespace, mounts tmpfs"
@@ -18,11 +18,12 @@ function usage {
 	echo -e "\tdirectory		directories to be snapshotted"
 	echo
 	echo "Directories can be given using the following syntax:"
-	echo -e "\tpath/of/the/directory[,nopreserveowner][,nopreservegroup][,exclude=PATTERN]*"
+	echo -e "\tpath/of/the/directory[,nopreserveowner][,nopreservegroup][,toleratepartialtransfer][,exclude=PATTERN]*"
 	echo -e "\t\"exclude\" PATTERN is passed to \"rsync\" to determine which files not to sync into the snapshot"
 	echo -e "\t\t(rsync --exclude), can be given multiple times."
 	echo -e "\t\"nopreserveowner\" can be used to instruct rsync to not preserve file ownership (don't pass rsync -o)."
 	echo -e "\t\"nopreservegroup\" can be used to instruct rsync to not preserve file group (don't pass rsync -g)."
+	echo -e "\t\"toleratepartialtransfer\" if set, don't fail on partial transfer errors (exit code 23/24 from rsync)."
 }
 
 if [ "$1" == "--help" ]; then
@@ -41,7 +42,7 @@ if [ ! "$1" == "--postwrap" ]; then
 	SELF_PATH="$(realpath "$0")"
 	if [ ! -f "$SELF_PATH" ]; then
 		echo "Error: Could not locate own location (needed for wrapped execution)."
-	
+
 		exit 255
 	fi
 	exec unshare -r -m \
@@ -81,13 +82,14 @@ while [ ! "$1" == "--" ]; do
 done
 
 for DIRECTORY in "${DIRECTORIES[@]}"; do
-	FOLDER="$(realpath "$(echo "$DIRECTORY" | grep -oP '^.*?(?=,exclude=.|,nopreserveowner|,nopreservegroup|$)')")"
+	FOLDER="$(realpath "$(echo "$DIRECTORY" | grep -oP '^.*?(?=,exclude=.|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)')")"
 	if [ ! -d "$FOLDER" ]; then
 		echo "Error: Could not find folder $FOLDER for snapshotting."
 
 		exit 1
 	fi
 
+	TOLERATE_PARTIAL_TRANSFER=0
 	# This is equal to rsync -a (but -g and -o)
 	RSYNC_ARGS=("-rlptD")
 	if [[ ! "$DIRECTORY" =~ ,nopreservegroup(,|$) ]]; then
@@ -96,13 +98,16 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 	if [[ ! "$DIRECTORY" =~ ,nopreserveowner(,|$) ]]; then
 		RSYNC_ARGS+=("-o")
 	fi
+	if [[ "$DIRECTORY" =~ ,toleratepartialtransfer(,|$) ]]; then
+		TOLERATE_PARTIAL_TRANSFER=1
+	fi
 
 	while read -r exclude; do
 		RSYNC_ARGS+=("--exclude" "$exclude")
 	done < <(
 		echo "$DIRECTORY" | \
-			grep -oP '(?<=,exclude=).*?(,exclude=|,nopreserveowner|,nopreservegroup|$)' | \
-			sed -E 's/(,exclude=|,nopreserveowner|,nopreservegroup)$//')
+			grep -oP '(?<=,exclude=).*?(,exclude=|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)' | \
+			sed -E 's/(,exclude=|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer)$//')
 
 	tmpdir="$(mktemp -d)"
 	RSYNC_ARGS+=("$tmpdir/" "$FOLDER")
@@ -141,10 +146,14 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 	if [ "$VERBOSE" -eq 0 ]; then
 		RSYNC_WRAP="silent"
 	fi
-	if ! $RSYNC_WRAP rsync "${RSYNC_ARGS[@]}"; then
-		echo "Error: rsync to create the snapshot failed."
-		clean
-		exit 255
+	$RSYNC_WRAP rsync "${RSYNC_ARGS[@]}"
+	RSYNC_STATUS=$?
+	if [ $RSYNC_STATUS -gt 0 ]; then
+		if [ $TOLERATE_PARTIAL_TRANSFER -eq 0 ] || { [ $RSYNC_STATUS -ne 23 ] && [ $RSYNC_STATUS -ne 24 ]; }; then
+			echo "Error: rsync to create the snapshot failed."
+			clean
+			exit 255
+		fi
 	fi
 
 	clean

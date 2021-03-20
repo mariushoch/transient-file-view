@@ -17,11 +17,12 @@ over the given directories and rsyncs the original directory content into the ne
         directory               directories to be snapshotted
 
 Directories can be given using the following syntax:
-        path/of/the/directory[,nopreserveowner][,nopreservegroup][,exclude=PATTERN]*
+        path/of/the/directory[,nopreserveowner][,nopreservegroup][,toleratepartialtransfer][,exclude=PATTERN]*
         "exclude" PATTERN is passed to "rsync" to determine which files not to sync into the snapshot
                 (rsync --exclude), can be given multiple times.
         "nopreserveowner" can be used to instruct rsync to not preserve file ownership (don't pass rsync -o).
         "nopreservegroup" can be used to instruct rsync to not preserve file group (don't pass rsync -g).
+        "toleratepartialtransfer" if set, don't fail on partial transfer errors (exit code 23/24 from rsync).
 ```
 
 ### Example
