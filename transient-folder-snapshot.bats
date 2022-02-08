@@ -13,6 +13,18 @@
 	[[ "$output" =~ Usage:\ transient-folder-snapshot ]]
 	[ "$status" -eq 1 ]
 }
+@test "transient-folder-snapshot: No command given" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot . /tmp --
+
+	[[ "$output" =~ Error:\ No\ command\ to\ execute ]]
+	[ "$status" -eq 1 ]
+}
+@test "transient-folder-snapshot: Missing --" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot . bash -i
+
+	[[ "$output" =~ Error:\ No\ command\ to\ execute ]]
+	[ "$status" -eq 1 ]
+}
 @test "transient-folder-snapshot" {
 	tmpdir="$(mktemp -d)"
 

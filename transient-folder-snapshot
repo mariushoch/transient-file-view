@@ -6,7 +6,7 @@ function silent {
 }
 
 function usage {
-	echo "Transient Folder Snapshot 0.1.0"
+	echo "Transient Folder Snapshot 0.2.0"
 	echo "Usage: $(basename "$0") [--help] [--verbose|--debug] directory [directory]* -- command"
 	echo
 	echo "Make a transient snapshot of a directory in a user namespace. This creates a new mount namespace, mounts tmpfs"
@@ -63,7 +63,7 @@ VERBOSE=0
 DEBUG=0
 DIRECTORIES=()
 
-while [ ! "$1" == "--" ]; do
+while [ ! "$1" == "--" ] && [ -n "$1" ]; do
 	case "$1" in
 		--debug)
 			VERBOSE=1
@@ -80,6 +80,11 @@ while [ ! "$1" == "--" ]; do
 		;;
 	esac
 done
+if [ ! "$1" == "--" ] || [ -z "$2" ]; then
+	echo "Error: No command to execute given, please see --help."
+
+	exit 1
+fi
 
 for DIRECTORY in "${DIRECTORIES[@]}"; do
 	FOLDER="$(realpath "$(echo "$DIRECTORY" | grep -oP '^.*?(?=,exclude=.|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)')")"
