@@ -174,14 +174,14 @@
 	run cat /tmp/transient-folder-snapshot.log
 	rm -f /tmp/transient-folder-snapshot.log
 
-	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ / ]]
-	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ -o\ / ]]
-	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ -g\ / ]]
-	[[ "${lines[3]}" =~ ^rsync\ -rlptD\ -g\ -o\ / ]]
-	[[ "${lines[4]}" =~ ^rsync\ -rlptD\ -g\ -o\ --exclude\ Blah\ blub\ / ]]
-	[[ "${lines[5]}" =~ ^rsync\ -rlptD\ -g\ --exclude\ a\*\ --exclude\ blah\ / ]]
-	[[ "${lines[6]}" =~ ^rsync\ -rlptD\ -g\ --exclude\ meh\ / ]]
-	[[ "${lines[7]}" =~ ^rsync\ -rlptD\ -g\ --exclude\ meh\ / ]]
+	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ / ]]
+	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ -o\ --checksum-choice=none\ / ]]
+	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ -g\ --checksum-choice=none\ / ]]
+	[[ "${lines[3]}" =~ ^rsync\ -rlptD\ -g\ -o\ --checksum-choice=none\ / ]]
+	[[ "${lines[4]}" =~ ^rsync\ -rlptD\ -g\ -o\ --checksum-choice=none\ --exclude\ Blah\ blub\ / ]]
+	[[ "${lines[5]}" =~ ^rsync\ -rlptD\ -g\ --checksum-choice=none\ --exclude\ a\*\ --exclude\ blah\ / ]]
+	[[ "${lines[6]}" =~ ^rsync\ -rlptD\ -g\ --checksum-choice=none\ --exclude\ meh\ / ]]
+	[[ "${lines[7]}" =~ ^rsync\ -rlptD\ -g\ --checksum-choice=none\ --exclude\ meh\ / ]]
 
 	rm -rf "$tmpdir" "$tmpbindir"
 }
@@ -214,9 +214,9 @@
 
 	run cat /tmp/transient-folder-snapshot.log
 	rm -f /tmp/transient-folder-snapshot.log
-	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ -g\ -o\ / ]]
-	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ -g\ -o\ / ]]
-	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ -g\ -o\ /.*\ /.*\ --progress ]]
+	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ -g\ -o\ --checksum-choice=none\ / ]]
+	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ -g\ -o\ --checksum-choice=none\ / ]]
+	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ -g\ -o\ --checksum-choice=none\ /.*\ /.*\ --progress ]]
 
 	rm -rf "$tmpdir" "$tmpbindir"
 }

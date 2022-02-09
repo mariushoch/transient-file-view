@@ -106,6 +106,8 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 	if [[ "$DIRECTORY" =~ ,toleratepartialtransfer(,|$) ]]; then
 		TOLERATE_PARTIAL_TRANSFER=1
 	fi
+	# Performance: Don't checksum the newly copied files
+	RSYNC_ARGS+=("--checksum-choice=none")
 
 	while read -r exclude; do
 		RSYNC_ARGS+=("--exclude" "$exclude")
