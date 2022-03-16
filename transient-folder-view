@@ -168,6 +168,14 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 		exit 1
 	fi
 
+	# Horrible things will happen if we try to work on /tmp (as our tmp directories/ mounts are in there)
+	if [ "$FOLDER" == "/tmp" ]; then
+		echo "Error: Cannot work on /tmp (as the tool makes internal use ot it)." >&2
+
+		clean_final
+		exit 1
+	fi
+
 	if [ "$DEBUG" -gt 0 ]; then
 		echo "Acting on folder \"$FOLDER\"." >&2
 	fi

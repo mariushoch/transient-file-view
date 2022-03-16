@@ -73,6 +73,10 @@ teardown() {
 	run "$BATS_TEST_DIRNAME"/transient-folder-view snapshot /dev -- true
 	[ "$status" -gt 0 ]
 
+	# snapshot doesn't allow working on /tmp
+	run "$BATS_TEST_DIRNAME"/transient-folder-view snapshot /tmp -- true
+	[ "$status" -gt 0 ]
+
 	# Make rsync fail
 	{
 		echo '#!/bin/bash'
@@ -93,6 +97,10 @@ teardown() {
 
 		# overlay mount --bind will fail here	
 		run "$BATS_TEST_DIRNAME"/transient-folder-view overlay /dev -- true
+		[ "$status" -gt 0 ]
+
+		# overlay doesn't allow working on /tmp
+		run "$BATS_TEST_DIRNAME"/transient-folder-view overlay /tmp -- true
 		[ "$status" -gt 0 ]
 	fi
 
@@ -136,6 +144,11 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- sh -c 'exit 123'
 	[ "$status" -eq 123 ]
 	[ "$output" == "" ]
+}
+@test "transient-folder-snapshot: Fails for /tmp" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /tmp// -- true
+	[ "$status" -eq 1 ]
+	[ "$output" == "Error: Cannot work on /tmp (as the tool makes internal use ot it)." ]
 }
 @test "transient-folder-snapshot: Trailing slash" {
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/" -- sh -c "echo 1 > $tmpdir/a; cat $tmpdir/a"
@@ -337,6 +350,16 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	run "$BATS_TEST_DIRNAME"/transient-folder-overlay "$tmpdir" -- sh -c 'exit 123'
 	[ "$status" -eq 123 ]
 	[ "$output" == "" ]
+}
+@test "transient-folder-overlay: Fails for /tmp" {
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
+		skip
+	fi
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /tmp// -- true
+	[ "$status" -eq 1 ]
+	[ "$output" == "Error: Cannot work on /tmp (as the tool makes internal use ot it)." ]
 }
 @test "transient-folder-overlay --debug" {
 	# Workaround for a shellcheck 0.7.2 bug
