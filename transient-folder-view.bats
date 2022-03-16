@@ -1,5 +1,10 @@
 #!/usr/bin/env bats
 
+can_use_fuse_overlayfs=""
+if command -v fuse-overlayfs >/dev/null && [[ "$(lsmod)" =~ fuse\  ]]; then
+	can_use_fuse_overlayfs=1
+fi
+
 setup() {
 	tmpdir="$(mktemp --tmpdir -d transient-folder-view-bats.tmpdir.XXXXXXXXXX)"
 	tmpbindir="$(mktemp --tmpdir -d transient-folder-view-bats.tmpbindir.XXXXXXXXXX)"
@@ -44,6 +49,7 @@ teardown() {
 }
 @test "transient-folder-snapshot" {
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- sh -c "echo 1 > $tmpdir/a; cat $tmpdir/a"
+
 	[ "$status" -eq 0 ]
 	[ "$output" == "1" ]
 	[ ! -f "$tmpdir/a" ]
@@ -77,7 +83,9 @@ teardown() {
 	[ "$status" -gt 0 ]
 	rm "$tmpbindir"/rsync
 
-	if command -v fuse-overlayfs1 >/dev/null; then
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030
+	if [ -n "$can_use_fuse_overlayfs" ]; then
 		# overlay success
 		run "$BATS_TEST_DIRNAME"/transient-folder-view overlay "$tmpdir" -- true
 		[ "$status" -eq 0 ]
@@ -102,8 +110,9 @@ teardown() {
 	[ "$tmpFilesPrior" -eq "$tmpFilesNow" ]
 }
 @test "transient-folder-view overlay" {
-	if ! command -v fuse-overlayfs >/dev/null; then
-		# Needs fuse-overlayfs
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
 	run "$BATS_TEST_DIRNAME"/transient-folder-view overlay "$tmpdir" -- findmnt --noheadings -o FSTYPE "$tmpdir"
@@ -320,8 +329,9 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[ "$output" == "" ]
 }
 @test "transient-folder-overlay: Exit code" {
-	if ! command -v fuse-overlayfs >/dev/null; then
-		# Needs fuse-overlayfs
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
 	run "$BATS_TEST_DIRNAME"/transient-folder-overlay "$tmpdir" -- sh -c 'exit 123'
@@ -329,8 +339,9 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[ "$output" == "" ]
 }
 @test "transient-folder-overlay --debug" {
-	if ! command -v fuse-overlayfs >/dev/null; then
-		# Needs fuse-overlayfs
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
 	echo "HEY" > "$tmpdir/a"
@@ -342,8 +353,9 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[[ "$output" =~ Running:\ fuse-overlayfs\ -o\ lowerdir=.+\ -o\ upperdir=.+\ $tmpdir ]]
 }
 @test "transient-folder-overlay: Multiple folders" {
-	if ! command -v fuse-overlayfs >/dev/null; then
-		# Needs fuse-overlayfs
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
 	echo -n "old" > "$tmpdir/a"
@@ -357,8 +369,9 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[ "$(cat "$tmpdir"/a "$tmpbindir"/subfolder/file)" == 'old0' ]
 }
 @test "transient-folder-overlay: Folder with spaces" {
-	if ! command -v fuse-overlayfs >/dev/null; then
-		# Needs fuse-overlayfs
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
 	mkdir "$tmpdir/a folder with spaces"
@@ -372,8 +385,9 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[ "$(cat "$tmpdir/a folder with spaces/a file")" == '0' ]
 }
 @test "transient-folder-overlay: Folder with new lines" {
-	if ! command -v fuse-overlayfs >/dev/null; then
-		# Needs fuse-overlayfs
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
 	local DIRNAME="$tmpdir/a folder with a "$'\n'"new line"
@@ -389,8 +403,9 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[ "$(cat "$DIRNAME/file")" == '0' ]
 }
 @test "transient-folder-overlay: nopreservegroup and nopreserveowner" {
-	if ! command -v fuse-overlayfs >/dev/null; then
-		# Needs fuse-overlayfs
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
 	if [[ ! "$(unshare --help)" =~ --map-user ]]; then
