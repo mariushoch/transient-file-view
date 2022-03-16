@@ -40,7 +40,7 @@ teardown() {
 	[[ "$output" =~ if\ set,\ don\'t\ fail\ on ]]
 	[[ ! "$output" =~ only\ to\ snapshot\ mode ]]
 }
-@test "transient-folder-snapshot: To few parameters" {
+@test "transient-folder-snapshot: Too few parameters" {
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot
 
 	[[ "$output" =~ Error:\ Expected\ at\ least ]]
@@ -128,6 +128,19 @@ teardown() {
 	[ "$status" -eq 0 ]
 	[ "$output" == "fuse.fuse-overlayfs" ]
 }
+@test "transient-folder-snapshot: Invalid directory options" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,nopreservegroup,banana,exclude=foo,exclude=bar," -- true
+	[ "$status" -ne 0 ]
+	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-snapshot --help\"." ]
+
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,exclude=.git,nopreservegroup,banana,nopreserveowner" -- true
+	[ "$status" -ne 0 ]
+	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-snapshot --help\"." ]
+
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,nopreservegroup,nopreserveuser" -- true
+	[ "$status" -ne 0 ]
+	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-snapshot --help\"." ]
+}
 @test "transient-folder-snapshot: Empty exclude" {
 	echo 4 > "$tmpdir/a"
 
@@ -138,7 +151,7 @@ teardown() {
 @test "transient-folder-snapshot: Non-existent folder" {
 run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- true
 	[ "$status" -eq 1 ]
-	[ "$output" == "Error: Could not find folder /does-not-exist for snapshotting." ]
+	[ "$output" == "Error: Could not find folder \"/does-not-exist\"." ]
 }
 @test "transient-folder-snapshot: Exit code" {
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- sh -c 'exit 123'

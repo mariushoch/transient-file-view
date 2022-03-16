@@ -1,5 +1,7 @@
 #!/bin/bash
 
+NEXT_OPTION_LOOKAHEAD='(?=,exclude=.|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)'
+
 BIN_FLAVOR=
 if [[ "$(basename "$0")" == "transient-folder-overlay" ]]; then
 	BIN_FLAVOR=overlay
@@ -28,6 +30,32 @@ function clean_final {
 	umount "${FINAL_UMOUNT_DIRS[@]}" 2>/dev/null
 	rm -rf "${FINAL_FORCE_DELETE_DIRS[@]}"
 	rmdir "${FINAL_UMOUNT_DIRS[@]}" 2>/dev/null
+}
+
+function assert_valid_directory {
+	if [ ! -d "$1" ]; then
+		echo "Error: Could not find folder \"$1\"." >&2
+
+		clean_final
+		exit 1
+	fi
+
+	# Horrible things will happen if we try to work on /tmp (as our tmp directories/ mounts are in there)
+	if [ "$1" == "/tmp" ]; then
+		echo "Error: Cannot work on /tmp (as the tool makes internal use ot it)." >&2
+
+		clean_final
+		exit 1
+	fi
+}
+
+function assert_valid_directory_options {
+	if [ ! "$(echo "$1" | grep -oP "^(,exclude=.*?$NEXT_OPTION_LOOKAHEAD|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer)*")" == "$1" ]; then
+		echo "Error: Invalid directory format, please refer to \"$(basename "$0") --help\"." >&2
+
+		clean_final
+		exit 1
+	fi
 }
 
 function usage {
@@ -160,29 +188,20 @@ if [ "$OVERLAY" -gt 0 ] && ! command -v fuse-overlayfs >/dev/null; then
 fi
 
 for DIRECTORY in "${DIRECTORIES[@]}"; do
-	FOLDER="$(realpath "$(echo "$DIRECTORY" | grep -oP '^.*?(?=,exclude=.|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)')")"
-	if [ ! -d "$FOLDER" ]; then
-		echo "Error: Could not find folder $FOLDER for snapshotting." >&2
+	DIRECTORY_RAW="$(echo "$DIRECTORY" | grep -oP "^.*?$NEXT_OPTION_LOOKAHEAD")"
+	DIRECTORY_OPTIONS="${DIRECTORY/"$DIRECTORY_RAW"/}"
+	DIRECTORY="$(realpath "$DIRECTORY_RAW")"
 
-		clean_final
-		exit 1
-	fi
-
-	# Horrible things will happen if we try to work on /tmp (as our tmp directories/ mounts are in there)
-	if [ "$FOLDER" == "/tmp" ]; then
-		echo "Error: Cannot work on /tmp (as the tool makes internal use ot it)." >&2
-
-		clean_final
-		exit 1
-	fi
+	assert_valid_directory "$DIRECTORY"
+	assert_valid_directory_options "$DIRECTORY_OPTIONS"
 
 	if [ "$DEBUG" -gt 0 ]; then
-		echo "Acting on folder \"$FOLDER\"." >&2
+		echo "Acting on folder \"$DIRECTORY\"." >&2
 	fi
 
 	# XXX: If we have fuse-overlayfs we could use that instead of bind mounts (as it preserves owner/group)
 	tmpdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
-	MOUNT_OUT="$(mount --bind -o ro "$FOLDER" "$tmpdir" 2>&1)"
+	MOUNT_OUT="$(mount --bind -o ro "$DIRECTORY" "$tmpdir" 2>&1)"
 	MOUNT_STATUS=$?
 	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
 		if [ "$VERBOSE" -gt 0 ]; then
@@ -203,13 +222,13 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 	OVERLAYFS_ARGS=()
 
 	TOLERATE_PARTIAL_TRANSFER=0
-	if [[ ! "$DIRECTORY" =~ ,nopreservegroup(,|$) ]]; then
+	if [[ ! "$DIRECTORY_OPTIONS" =~ ,nopreservegroup(,|$) ]]; then
 		RSYNC_ARGS+=("-g")
 	else
 		# We use gid 0 here as we will either stay root or map root back to the original group (unshare --map-group)
 		OVERLAYFS_ARGS+=("-o" "squash_to_gid=0")
 	fi
-	if [[ ! "$DIRECTORY" =~ ,nopreserveowner(,|$) ]]; then
+	if [[ ! "$DIRECTORY_OPTIONS" =~ ,nopreserveowner(,|$) ]]; then
 		RSYNC_ARGS+=("-o")
 	else
 		# We use uid 0 here as we will either stay root or map root back to the original user (unshare --map-user)
@@ -217,25 +236,24 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 	fi
 
 	if [ "$OVERLAY" -eq 0 ]; then
-		if ! MOUNT_OUT="$(mount -n -t tmpfs tmpfs "$FOLDER" 2>&1)"; then
-			echo "Error: Mounting tmpfs to \"$FOLDER\": $MOUNT_OUT" >&2
+		if ! MOUNT_OUT="$(mount -n -t tmpfs tmpfs "$DIRECTORY" 2>&1)"; then
+			echo "Error: Mounting tmpfs to \"$DIRECTORY\": $MOUNT_OUT" >&2
 			rm_tmp_mount
 			clean_final
 			exit 255
 		fi
 
-		if [[ "$DIRECTORY" =~ ,toleratepartialtransfer(,|$) ]]; then
+		if [[ "$DIRECTORY_OPTIONS" =~ ,toleratepartialtransfer(,|$) ]]; then
 			TOLERATE_PARTIAL_TRANSFER=1
 		fi
 	
 		while read -r exclude; do
 			RSYNC_ARGS+=("--exclude" "$exclude")
 		done < <(
-			echo "$DIRECTORY" | \
-				grep -oP '(?<=,exclude=).*?(,exclude=|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)' | \
-				sed -E 's/(,exclude=|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer)$//')
+			echo "$DIRECTORY_OPTIONS" | \
+				grep -oP "(?<=,exclude=).*?$NEXT_OPTION_LOOKAHEAD")
 
-		RSYNC_ARGS+=("$tmpdir/" "$FOLDER")
+		RSYNC_ARGS+=("$tmpdir/" "$DIRECTORY")
 
 		if [ "$DEBUG" -gt 0 ]; then
 			RSYNC_ARGS+=("--progress")
@@ -261,7 +279,7 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 		workdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
 		upperdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
 
-		OVERLAYFS_ARGS+=("-o" "lowerdir=$tmpdir/" "-o" "workdir=$workdir" "-o" "upperdir=$upperdir" "$FOLDER")
+		OVERLAYFS_ARGS+=("-o" "lowerdir=$tmpdir/" "-o" "workdir=$workdir" "-o" "upperdir=$upperdir" "$DIRECTORY")
 		if [ "$DEBUG" -gt 0 ]; then
 			echo "Running: fuse-overlayfs ${OVERLAYFS_ARGS[*]}" >&2
 		fi
@@ -274,7 +292,7 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 			clean_final
 			exit 255
 		fi
-		FINAL_FUSER_UMOUNT_DIRS+=("$FOLDER")
+		FINAL_FUSER_UMOUNT_DIRS+=("$DIRECTORY")
 	fi
 done
 
