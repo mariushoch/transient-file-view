@@ -19,18 +19,19 @@ function rm_tmp_mount {
 
 FINAL_FUSER_UMOUNT_DIRS=()
 FINAL_UMOUNT_DIRS=()
-FINAL_DELETE_DIRS=()
+FINAL_FORCE_DELETE_DIRS=()
 function clean_final {
 	local dir
 	for dir in "${FINAL_FUSER_UMOUNT_DIRS[@]}"; do
 		fusermount -u "$dir"
 	done
 	umount "${FINAL_UMOUNT_DIRS[@]}" 2>/dev/null
-	rm -rf "${FINAL_DELETE_DIRS[@]}"
+	rm -rf "${FINAL_FORCE_DELETE_DIRS[@]}"
+	rmdir "${FINAL_UMOUNT_DIRS[@]}" 2>/dev/null
 }
 
 function usage {
-	echo "Transient Folder View 0.3.0"
+	echo "Transient Folder View 0.4.0-PRE"
 	if [ -z "$BIN_FLAVOR" ]; then
 		echo "Usage: $(basename "$0") [--help] [overlay|snapshot] [--verbose|--debug] directory [directory]* [-- command [ARG]...]"
 	else
@@ -257,7 +258,7 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 			echo "Running: fuse-overlayfs ${OVERLAYFS_ARGS[*]}" >&2
 		fi
 		FINAL_UMOUNT_DIRS+=("$tmpdir")
-		FINAL_DELETE_DIRS+=("$tmpdir" "$workdir" "$upperdir")
+		FINAL_FORCE_DELETE_DIRS+=("$workdir" "$upperdir")
 
 		if ! fuse-overlayfs "${OVERLAYFS_ARGS[@]}"; then
 			echo "Error: Mounting fuse-overlayfs failed." >&2
