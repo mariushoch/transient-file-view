@@ -346,6 +346,35 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	# to-chk is included in rsync --progress, thus check for that
 	[[ "$output" =~ to-chk ]]
 }
+@test "transient-folder-snapshot: Prepends -- to unshare call" {
+	{
+		echo '#!/bin/bash'
+		# shellcheck disable=SC2016
+		echo '[ "${*:5}" == "-- command and args" ] && echo True && exit'
+		# shellcheck disable=SC2016
+		echo 'exec "'"$(command -v unshare)"'" "$@"'
+	} > "$tmpbindir"/unshare
+	chmod +x "$tmpbindir"/unshare
+
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- command and args
+	[ "$status" -eq 0 ]
+	[ "$output" == "True" ]
+}
+@test "transient-folder-snapshot: Drops -- from command" {
+	# unshare that signals that we can't use --map-user
+	{
+		echo '#!/bin/bash'
+		# shellcheck disable=SC2016
+		echo '[ "$1" == "--help" ] && exit'
+		# shellcheck disable=SC2016
+		echo 'exec "'"$(command -v unshare)"'" "$@"'
+	} > "$tmpbindir"/unshare
+	chmod +x "$tmpbindir"/unshare
+
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- echo 1
+	[ "$status" -eq 0 ]
+	[ "$output" == "1" ]
+}
 @test "transient-folder-snapshot: toleratepartialtransfer" {
 	{
 		echo '#!/bin/bash'

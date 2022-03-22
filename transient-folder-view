@@ -260,7 +260,7 @@ VERBOSE=0
 DEBUG=0
 DIRECTORIES=()
 
-while [ ! "$1" == "--" ] && [ -n "$1" ]; do
+while [ -n "$1" ]; do
 	case "$1" in
 		--debug)
 			VERBOSE=1
@@ -271,15 +271,16 @@ while [ ! "$1" == "--" ] && [ -n "$1" ]; do
 			VERBOSE=1
 			shift
 		;;
+		--)
+			shift
+			break
+		;;
 		*)
 			DIRECTORIES+=("$1")
 			shift
 		;;
 	esac
 done
-if [ "$1" == "--" ]; then
-	shift
-fi
 
 if [ "$OVERLAY" -gt 0 ] && ! command -v fuse-overlayfs >/dev/null; then
 	echo 'Error: fuse-overlayfs is needed for directory overlays.' >&2
@@ -307,10 +308,10 @@ if ! cd "$(pwd)"; then
 	exit 1
 fi
 
-UNSHARE_ARGS=()
+UNSHARE=()
 if [[ "$(unshare --help)" =~ --map-user ]]; then
 	# Map us back to the original user, if unshare supports this
-	UNSHARE_ARGS=(unshare --map-user "$MAP_USER" --map-group "$MAP_GROUP")
+	UNSHARE=(unshare --map-user "$MAP_USER" --map-group "$MAP_GROUP" --)
 fi
 
 COMMAND=()
@@ -320,4 +321,4 @@ if [ "$#" -lt 1 ]; then
 	COMMAND=("bash" "-l" "-i" "-c" 'PS1="(TF) $PS1" bash -i')
 fi
 
-"${UNSHARE_ARGS[@]}" "$@" "${COMMAND[@]}"
+"${UNSHARE[@]}" "$@" "${COMMAND[@]}"
