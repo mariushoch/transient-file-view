@@ -277,6 +277,9 @@ while [ ! "$1" == "--" ] && [ -n "$1" ]; do
 		;;
 	esac
 done
+if [ "$1" == "--" ]; then
+	shift
+fi
 
 if [ "$OVERLAY" -gt 0 ] && ! command -v fuse-overlayfs >/dev/null; then
 	echo 'Error: fuse-overlayfs is needed for directory overlays.' >&2

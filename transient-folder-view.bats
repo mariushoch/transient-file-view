@@ -12,12 +12,8 @@ setup() {
 teardown() {
 	rm -rf "$tmpdir" "$tmpbindir"
 
-	# Print output and status from bats' run
+	# Print last output from bats' run
 	# bats will not output anything, if the test succeeded.
-	if [ -n "$status" ]; then
-		echo
-		echo "Last \$status: $status"
-	fi
 	if [ -n "$output" ]; then
 		echo "Last \$output:"
 		echo "$output"
