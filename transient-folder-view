@@ -15,8 +15,8 @@ function silent {
 }
 
 function rm_tmp_mount {
-	umount "$tmpdir" 2>/dev/null
-	rmdir "$tmpdir"
+	umount "$1" 2>/dev/null
+	rmdir "$1"
 }
 
 FINAL_FUSER_UMOUNT_DIRS=()
@@ -108,6 +108,117 @@ function usage_details {
 	fi
 }
 
+function handle_directory {
+	local DIRECTORY="$1"
+	local DIRECTORY_OPTIONS="$2"
+
+	assert_valid_directory "$DIRECTORY"
+	assert_valid_directory_options "$DIRECTORY_OPTIONS"
+
+	if [ "$DEBUG" -gt 0 ]; then
+		echo "Acting on folder \"$DIRECTORY\"." >&2
+	fi
+
+	# XXX: If we have fuse-overlayfs we could use that instead of bind mounts (as it preserves owner/group)
+	local tmpdir MOUNT_OUT MOUNT_STATUS
+	tmpdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
+	MOUNT_OUT="$(mount --bind -o ro "$DIRECTORY" "$tmpdir" 2>&1)"
+	MOUNT_STATUS=$?
+	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
+		if [ "$VERBOSE" -gt 0 ]; then
+			echo "Warning: mount --bind partially failed: $MOUNT_OUT" >&2
+		fi
+	elif [ $MOUNT_STATUS -gt 0 ]; then
+		echo "Error: mount --bind failed: $MOUNT_OUT" >&2
+		rm_tmp_mount "$tmpdir"
+		clean_final
+		exit 255
+	fi
+
+	# This is equal to rsync -a (but -g and -o)
+	local RSYNC_ARGS=("-rlptD")
+	# Performance: Don't checksum the newly copied files
+	RSYNC_ARGS+=("--checksum-choice=none")
+
+	local OVERLAYFS_ARGS=()
+
+	local TOLERATE_PARTIAL_TRANSFER=0
+	if [[ ! "$DIRECTORY_OPTIONS" =~ ,nopreservegroup(,|$) ]]; then
+		RSYNC_ARGS+=("-g")
+	else
+		# We use gid 0 here as we will either stay root or map root back to the original group (unshare --map-group)
+		OVERLAYFS_ARGS+=("-o" "squash_to_gid=0")
+	fi
+	if [[ ! "$DIRECTORY_OPTIONS" =~ ,nopreserveowner(,|$) ]]; then
+		RSYNC_ARGS+=("-o")
+	else
+		# We use uid 0 here as we will either stay root or map root back to the original user (unshare --map-user)
+		OVERLAYFS_ARGS+=("-o" "squash_to_uid=0")
+	fi
+
+	if [ "$OVERLAY" -eq 0 ]; then
+		if ! MOUNT_OUT="$(mount -n -t tmpfs tmpfs "$DIRECTORY" 2>&1)"; then
+			echo "Error: Mounting tmpfs to \"$DIRECTORY\": $MOUNT_OUT" >&2
+			rm_tmp_mount "$tmpdir"
+			clean_final
+			exit 255
+		fi
+
+		if [[ "$DIRECTORY_OPTIONS" =~ ,toleratepartialtransfer(,|$) ]]; then
+			TOLERATE_PARTIAL_TRANSFER=1
+		fi
+
+		local exclude
+		while read -r exclude; do
+			RSYNC_ARGS+=("--exclude" "$exclude")
+		done < <(
+			echo "$DIRECTORY_OPTIONS" | \
+				grep -oP "(?<=,exclude=).*?$NEXT_OPTION_LOOKAHEAD")
+
+		RSYNC_ARGS+=("$tmpdir/" "$DIRECTORY")
+
+		if [ "$DEBUG" -gt 0 ]; then
+			RSYNC_ARGS+=("--progress")
+			echo "Running: rsync ${RSYNC_ARGS[*]}" >&2
+		fi
+
+		local RSYNC_WRAP=""
+		if [ "$VERBOSE" -eq 0 ]; then
+			RSYNC_WRAP="silent"
+		fi
+		$RSYNC_WRAP rsync "${RSYNC_ARGS[@]}"
+		local RSYNC_STATUS=$?
+		if [ $RSYNC_STATUS -gt 0 ]; then
+			if [ $TOLERATE_PARTIAL_TRANSFER -eq 0 ] || { [ $RSYNC_STATUS -ne 23 ] && [ $RSYNC_STATUS -ne 24 ]; }; then
+				echo "Error: rsync to create the snapshot failed." >&2
+				rm_tmp_mount "$tmpdir"
+				exit 255
+			fi
+		fi
+
+		rm_tmp_mount "$tmpdir"
+	else
+		local workdir upperdir
+		workdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
+		upperdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
+
+		OVERLAYFS_ARGS+=("-o" "lowerdir=$tmpdir/" "-o" "workdir=$workdir" "-o" "upperdir=$upperdir" "$DIRECTORY")
+		if [ "$DEBUG" -gt 0 ]; then
+			echo "Running: fuse-overlayfs ${OVERLAYFS_ARGS[*]}" >&2
+		fi
+		FINAL_UMOUNT_DIRS+=("$tmpdir")
+		FINAL_FORCE_DELETE_DIRS+=("$workdir" "$upperdir")
+
+		if ! fuse-overlayfs "${OVERLAYFS_ARGS[@]}"; then
+			echo "Error: Mounting fuse-overlayfs failed." >&2
+			rm_tmp_mount "$tmpdir"
+			clean_final
+			exit 255
+		fi
+		FINAL_FUSER_UMOUNT_DIRS+=("$DIRECTORY")
+	fi
+}
+
 if [ "$1" == "--help" ]; then
 	usage
 	exit
@@ -192,108 +303,7 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 	DIRECTORY_OPTIONS="${DIRECTORY/"$DIRECTORY_RAW"/}"
 	DIRECTORY="$(realpath "$DIRECTORY_RAW")"
 
-	assert_valid_directory "$DIRECTORY"
-	assert_valid_directory_options "$DIRECTORY_OPTIONS"
-
-	if [ "$DEBUG" -gt 0 ]; then
-		echo "Acting on folder \"$DIRECTORY\"." >&2
-	fi
-
-	# XXX: If we have fuse-overlayfs we could use that instead of bind mounts (as it preserves owner/group)
-	tmpdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
-	MOUNT_OUT="$(mount --bind -o ro "$DIRECTORY" "$tmpdir" 2>&1)"
-	MOUNT_STATUS=$?
-	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
-		if [ "$VERBOSE" -gt 0 ]; then
-			echo "Warning: mount --bind partially failed: $MOUNT_OUT" >&2
-		fi
-	elif [ $MOUNT_STATUS -gt 0 ]; then
-		echo "Error: mount --bind failed: $MOUNT_OUT" >&2
-		rm_tmp_mount
-		clean_final
-		exit 255
-	fi
-
-	# This is equal to rsync -a (but -g and -o)
-	RSYNC_ARGS=("-rlptD")
-	# Performance: Don't checksum the newly copied files
-	RSYNC_ARGS+=("--checksum-choice=none")
-
-	OVERLAYFS_ARGS=()
-
-	TOLERATE_PARTIAL_TRANSFER=0
-	if [[ ! "$DIRECTORY_OPTIONS" =~ ,nopreservegroup(,|$) ]]; then
-		RSYNC_ARGS+=("-g")
-	else
-		# We use gid 0 here as we will either stay root or map root back to the original group (unshare --map-group)
-		OVERLAYFS_ARGS+=("-o" "squash_to_gid=0")
-	fi
-	if [[ ! "$DIRECTORY_OPTIONS" =~ ,nopreserveowner(,|$) ]]; then
-		RSYNC_ARGS+=("-o")
-	else
-		# We use uid 0 here as we will either stay root or map root back to the original user (unshare --map-user)
-		OVERLAYFS_ARGS+=("-o" "squash_to_uid=0")
-	fi
-
-	if [ "$OVERLAY" -eq 0 ]; then
-		if ! MOUNT_OUT="$(mount -n -t tmpfs tmpfs "$DIRECTORY" 2>&1)"; then
-			echo "Error: Mounting tmpfs to \"$DIRECTORY\": $MOUNT_OUT" >&2
-			rm_tmp_mount
-			clean_final
-			exit 255
-		fi
-
-		if [[ "$DIRECTORY_OPTIONS" =~ ,toleratepartialtransfer(,|$) ]]; then
-			TOLERATE_PARTIAL_TRANSFER=1
-		fi
-	
-		while read -r exclude; do
-			RSYNC_ARGS+=("--exclude" "$exclude")
-		done < <(
-			echo "$DIRECTORY_OPTIONS" | \
-				grep -oP "(?<=,exclude=).*?$NEXT_OPTION_LOOKAHEAD")
-
-		RSYNC_ARGS+=("$tmpdir/" "$DIRECTORY")
-
-		if [ "$DEBUG" -gt 0 ]; then
-			RSYNC_ARGS+=("--progress")
-			echo "Running: rsync ${RSYNC_ARGS[*]}" >&2
-		fi
-
-		RSYNC_WRAP=""
-		if [ "$VERBOSE" -eq 0 ]; then
-			RSYNC_WRAP="silent"
-		fi
-		$RSYNC_WRAP rsync "${RSYNC_ARGS[@]}"
-		RSYNC_STATUS=$?
-		if [ $RSYNC_STATUS -gt 0 ]; then
-			if [ $TOLERATE_PARTIAL_TRANSFER -eq 0 ] || { [ $RSYNC_STATUS -ne 23 ] && [ $RSYNC_STATUS -ne 24 ]; }; then
-				echo "Error: rsync to create the snapshot failed." >&2
-				rm_tmp_mount
-				exit 255
-			fi
-		fi
-
-		rm_tmp_mount
-	else
-		workdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
-		upperdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
-
-		OVERLAYFS_ARGS+=("-o" "lowerdir=$tmpdir/" "-o" "workdir=$workdir" "-o" "upperdir=$upperdir" "$DIRECTORY")
-		if [ "$DEBUG" -gt 0 ]; then
-			echo "Running: fuse-overlayfs ${OVERLAYFS_ARGS[*]}" >&2
-		fi
-		FINAL_UMOUNT_DIRS+=("$tmpdir")
-		FINAL_FORCE_DELETE_DIRS+=("$workdir" "$upperdir")
-
-		if ! fuse-overlayfs "${OVERLAYFS_ARGS[@]}"; then
-			echo "Error: Mounting fuse-overlayfs failed." >&2
-			rm_tmp_mount
-			clean_final
-			exit 255
-		fi
-		FINAL_FUSER_UMOUNT_DIRS+=("$DIRECTORY")
-	fi
+	handle_directory "$DIRECTORY" "$DIRECTORY_OPTIONS"
 done
 
 if ! cd "$(pwd)"; then
