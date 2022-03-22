@@ -350,6 +350,8 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	{
 		echo '#!/bin/bash'
 		# shellcheck disable=SC2016
+		echo '[ "$1" == "--help" ] && echo "This unshare supports --map-user!" && exit'
+		# shellcheck disable=SC2016
 		echo '[ "${*:5}" == "-- command and args" ] && echo True && exit'
 		# shellcheck disable=SC2016
 		echo 'exec "'"$(command -v unshare)"'" "$@"'
