@@ -14,37 +14,33 @@ function silent {
 	return $?
 }
 
-function rm_tmp_mount {
-	umount "$1" 2>/dev/null
-	rmdir "$1"
-}
-
 FINAL_FUSER_UMOUNT_DIRS=()
 FINAL_UMOUNT_DIRS=()
-FINAL_FORCE_DELETE_DIRS=()
 function clean_final {
+	exitCode=$?
+
+	cd /
 	local dir
 	for dir in "${FINAL_FUSER_UMOUNT_DIRS[@]}"; do
-		fusermount -u "$dir"
+		fusermount -u "$dir" 2>/dev/null
 	done
-	umount "${FINAL_UMOUNT_DIRS[@]}" 2>/dev/null
-	rm -rf "${FINAL_FORCE_DELETE_DIRS[@]}"
-	rmdir "${FINAL_UMOUNT_DIRS[@]}" 2>/dev/null
+	for dir in "${FINAL_UMOUNT_DIRS[@]}"; do
+		umount "$dir" 2>/dev/null
+	done
+	rm -rf "$MAIN_TMP_DIR"
+
+	exit "$exitCode"
 }
 
 function assert_valid_directory {
 	if [ ! -d "$1" ]; then
 		echo "Error: Could not find folder \"$1\"." >&2
-
-		clean_final
 		exit 1
 	fi
 
 	# Horrible things will happen if we try to work on /tmp (as our tmp directories/ mounts are in there)
 	if [ "$1" == "/tmp" ]; then
 		echo "Error: Cannot work on /tmp (as the tool makes internal use ot it)." >&2
-
-		clean_final
 		exit 1
 	fi
 }
@@ -52,8 +48,6 @@ function assert_valid_directory {
 function assert_valid_directory_options {
 	if [ ! "$(echo "$1" | grep -oP "^(,exclude=.*?$NEXT_OPTION_LOOKAHEAD|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer)*")" == "$1" ]; then
 		echo "Error: Invalid directory format, please refer to \"$(basename "$0") --help\"." >&2
-
-		clean_final
 		exit 1
 	fi
 }
@@ -121,7 +115,8 @@ function handle_directory {
 
 	# XXX: If we have fuse-overlayfs we could use that instead of bind mounts (as it preserves owner/group)
 	local tmpdir MOUNT_OUT MOUNT_STATUS
-	tmpdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
+	tmpdir="$(mktemp -p "$MAIN_TMP_DIR" -d mount-bind.XXXXXXXXXX)"
+	FINAL_UMOUNT_DIRS+=("$tmpdir")
 	MOUNT_OUT="$(mount --bind -o ro "$DIRECTORY" "$tmpdir" 2>&1)"
 	MOUNT_STATUS=$?
 	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
@@ -130,8 +125,6 @@ function handle_directory {
 		fi
 	elif [ $MOUNT_STATUS -gt 0 ]; then
 		echo "Error: mount --bind failed: $MOUNT_OUT" >&2
-		rm_tmp_mount "$tmpdir"
-		clean_final
 		exit 255
 	fi
 
@@ -159,8 +152,6 @@ function handle_directory {
 	if [ "$OVERLAY" -eq 0 ]; then
 		if ! MOUNT_OUT="$(mount -n -t tmpfs tmpfs "$DIRECTORY" 2>&1)"; then
 			echo "Error: Mounting tmpfs to \"$DIRECTORY\": $MOUNT_OUT" >&2
-			rm_tmp_mount "$tmpdir"
-			clean_final
 			exit 255
 		fi
 
@@ -191,28 +182,21 @@ function handle_directory {
 		if [ $RSYNC_STATUS -gt 0 ]; then
 			if [ $TOLERATE_PARTIAL_TRANSFER -eq 0 ] || { [ $RSYNC_STATUS -ne 23 ] && [ $RSYNC_STATUS -ne 24 ]; }; then
 				echo "Error: rsync to create the snapshot failed." >&2
-				rm_tmp_mount "$tmpdir"
 				exit 255
 			fi
 		fi
-
-		rm_tmp_mount "$tmpdir"
 	else
 		local workdir upperdir
-		workdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
-		upperdir="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
+		workdir="$(mktemp -p "$MAIN_TMP_DIR" -d workdir.XXXXXXXXXX)"
+		upperdir="$(mktemp -p "$MAIN_TMP_DIR" -d upperdir.XXXXXXXXXX)"
 
 		OVERLAYFS_ARGS+=("-o" "lowerdir=$tmpdir/" "-o" "workdir=$workdir" "-o" "upperdir=$upperdir" "$DIRECTORY")
 		if [ "$DEBUG" -gt 0 ]; then
 			echo "Running: fuse-overlayfs ${OVERLAYFS_ARGS[*]}" >&2
 		fi
-		FINAL_UMOUNT_DIRS+=("$tmpdir")
-		FINAL_FORCE_DELETE_DIRS+=("$workdir" "$upperdir")
 
 		if ! fuse-overlayfs "${OVERLAYFS_ARGS[@]}"; then
 			echo "Error: Mounting fuse-overlayfs failed." >&2
-			rm_tmp_mount "$tmpdir"
-			clean_final
 			exit 255
 		fi
 		FINAL_FUSER_UMOUNT_DIRS+=("$DIRECTORY")
@@ -298,6 +282,9 @@ if [ "$OVERLAY" -gt 0 ] && ! command -v fuse-overlayfs >/dev/null; then
 	exit 1
 fi
 
+MAIN_TMP_DIR="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
+trap "clean_final" EXIT
+
 for DIRECTORY in "${DIRECTORIES[@]}"; do
 	DIRECTORY_RAW="$(echo "$DIRECTORY" | grep -oP "^.*?$NEXT_OPTION_LOOKAHEAD")"
 	DIRECTORY_OPTIONS="${DIRECTORY/"$DIRECTORY_RAW"/}"
@@ -308,7 +295,6 @@ done
 
 if ! cd "$(pwd)"; then
 	echo "Error: Failed to cd back to old working directory." >&2
-	clean_final
 	exit 1
 fi
 
@@ -325,14 +311,4 @@ if [ "$#" -lt 1 ]; then
 	COMMAND=("bash" "-l" "-i" "-c" 'PS1="(TF) $PS1" bash -i')
 fi
 
-if [ "$OVERLAY" -eq 0 ]; then
-	exec "${UNSHARE_ARGS[@]}" "$@" "${COMMAND[@]}"
-else
-	"${UNSHARE_ARGS[@]}" "$@" "${COMMAND[@]}"
-	ret=$?
-
-	cd /
-	clean_final
-
-	exit $ret
-fi
+"${UNSHARE_ARGS[@]}" "$@" "${COMMAND[@]}"
