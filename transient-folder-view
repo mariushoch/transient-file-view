@@ -35,20 +35,20 @@ function clean_final {
 function assert_valid_directory {
 	if [ ! -d "$1" ]; then
 		echo "Error: Could not find folder \"$1\"." >&2
-		exit 1
+		return 1
 	fi
 
 	# Horrible things will happen if we try to work on /tmp (as our tmp directories/ mounts are in there)
 	if [ "$1" == "/tmp" ]; then
 		echo "Error: Cannot work on /tmp (as the tool makes internal use ot it)." >&2
-		exit 1
+		return 1
 	fi
 }
 
 function assert_valid_directory_options {
 	if [ ! "$(echo "$1" | grep -oP "^(,exclude=.*?$NEXT_OPTION_LOOKAHEAD|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer)*")" == "$1" ]; then
 		echo "Error: Invalid directory format, please refer to \"$(basename "$0") --help\"." >&2
-		exit 1
+		return 1
 	fi
 }
 
@@ -106,8 +106,10 @@ function handle_directory {
 	local DIRECTORY="$1"
 	local DIRECTORY_OPTIONS="$2"
 
-	assert_valid_directory "$DIRECTORY"
-	assert_valid_directory_options "$DIRECTORY_OPTIONS"
+	if ! assert_valid_directory "$DIRECTORY" ||
+		! assert_valid_directory_options "$DIRECTORY_OPTIONS"; then
+		return 1
+	fi
 
 	if [ "$DEBUG" -gt 0 ]; then
 		echo "Acting on folder \"$DIRECTORY\"." >&2
@@ -125,7 +127,7 @@ function handle_directory {
 		fi
 	elif [ $MOUNT_STATUS -gt 0 ]; then
 		echo "Error: mount --bind failed: $MOUNT_OUT" >&2
-		exit 255
+		return 255
 	fi
 
 	# This is equal to rsync -a (but -g and -o)
@@ -152,7 +154,7 @@ function handle_directory {
 	if [ "$OVERLAY" -eq 0 ]; then
 		if ! MOUNT_OUT="$(mount -n -t tmpfs tmpfs "$DIRECTORY" 2>&1)"; then
 			echo "Error: Mounting tmpfs to \"$DIRECTORY\": $MOUNT_OUT" >&2
-			exit 255
+			return 255
 		fi
 
 		if [[ "$DIRECTORY_OPTIONS" =~ ,toleratepartialtransfer(,|$) ]]; then
@@ -182,7 +184,7 @@ function handle_directory {
 		if [ $RSYNC_STATUS -gt 0 ]; then
 			if [ $TOLERATE_PARTIAL_TRANSFER -eq 0 ] || { [ $RSYNC_STATUS -ne 23 ] && [ $RSYNC_STATUS -ne 24 ]; }; then
 				echo "Error: rsync to create the snapshot failed." >&2
-				exit 255
+				return 255
 			fi
 		fi
 	else
@@ -197,7 +199,7 @@ function handle_directory {
 
 		if ! fuse-overlayfs "${OVERLAYFS_ARGS[@]}"; then
 			echo "Error: Mounting fuse-overlayfs failed." >&2
-			exit 255
+			return 255
 		fi
 		FINAL_FUSER_UMOUNT_DIRS+=("$DIRECTORY")
 	fi
@@ -291,6 +293,10 @@ for DIRECTORY in "${DIRECTORIES[@]}"; do
 	DIRECTORY="$(realpath "$DIRECTORY_RAW")"
 
 	handle_directory "$DIRECTORY" "$DIRECTORY_OPTIONS"
+	exitCode=$?
+	if [ "$exitCode" -gt 0 ]; then
+		exit "$exitCode"
+	fi
 done
 
 if ! cd "$(pwd)"; then
