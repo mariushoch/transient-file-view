@@ -33,11 +33,6 @@ function clean_final {
 }
 
 function assert_valid_directory {
-	if [ ! -d "$1" ]; then
-		echo "Error: Could not find folder \"$1\"." >&2
-		return 1
-	fi
-
 	# Horrible things will happen if we try to work on /tmp (as our tmp directories/ mounts are in there)
 	if [ "$1" == "/tmp" ]; then
 		echo "Error: Cannot work on /tmp (as the tool makes internal use ot it)." >&2
@@ -258,7 +253,7 @@ fi
 
 VERBOSE=0
 DEBUG=0
-DIRECTORIES=()
+FILES=()
 
 while [ -n "$1" ]; do
 	case "$1" in
@@ -276,7 +271,7 @@ while [ -n "$1" ]; do
 			break
 		;;
 		*)
-			DIRECTORIES+=("$1")
+			FILES+=("$1")
 			shift
 		;;
 	esac
@@ -291,12 +286,17 @@ fi
 MAIN_TMP_DIR="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
 trap "clean_final" EXIT
 
-for DIRECTORY in "${DIRECTORIES[@]}"; do
-	DIRECTORY_RAW="$(echo "$DIRECTORY" | grep -oP "^.*?$NEXT_OPTION_LOOKAHEAD")"
-	DIRECTORY_OPTIONS="${DIRECTORY/"$DIRECTORY_RAW"/}"
-	DIRECTORY="$(realpath "$DIRECTORY_RAW")"
+for FILE in "${FILES[@]}"; do
+	FILE_RAW="$(echo "$FILE" | grep -oP "^.*?$NEXT_OPTION_LOOKAHEAD")"
+	FILE_OPTIONS="${FILE/"$FILE_RAW"/}"
+	FILE="$(realpath "$FILE_RAW")"
 
-	handle_directory "$DIRECTORY" "$DIRECTORY_OPTIONS"
+	if [ -d "$FILE" ]; then
+		handle_directory "$FILE" "$FILE_OPTIONS"
+	else
+		echo "Error: Cannot act on \"$FILE_RAW\": No such directory" >&2
+		exit 1
+	fi
 	exitCode=$?
 	if [ "$exitCode" -gt 0 ]; then
 		exit "$exitCode"

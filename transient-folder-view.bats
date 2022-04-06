@@ -158,7 +158,7 @@ teardown() {
 @test "transient-folder-snapshot: Non-existent folder" {
 run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- true
 	[ "$status" -eq 1 ]
-	[ "$output" == "Error: Could not find folder \"/does-not-exist\"." ]
+	[ "$output" == "Error: Cannot act on \"/does-not-exist\": No such directory" ]
 }
 @test "transient-folder-snapshot: Exit code" {
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- sh -c 'exit 123'
