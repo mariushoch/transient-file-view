@@ -170,6 +170,16 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[ "$status" -eq 1 ]
 	[ "$output" == "Error: Cannot work on /tmp (as the tool makes internal use ot it)." ]
 }
+@test "transient-folder-snapshot: Fails for /dev" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /dev -- true
+	[ "$status" -eq 1 ]
+	[ "$output" == "Error: Cannot work on /dev." ]
+}
+@test "transient-folder-snapshot: Fails for /" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /./ -- true
+	[ "$status" -eq 1 ]
+	[ "$output" == "Error: Cannot work on /." ]
+}
 @test "transient-folder-snapshot: Trailing slash" {
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/" -- sh -c "echo 1 > $tmpdir/a; cat $tmpdir/a"
 
@@ -316,8 +326,8 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 @test "transient-folder-snapshot: mount error handling" {
 	function MOCK_MOUNT {
 		echo '#!/bin/bash' > "$tmpbindir"/mount
-		if [ "$1" == "bind" ]; then
-			echo 'if [[ "$@" =~ --bind ]]; then echo "Bind mount fail"; exit 1; fi' >> "$tmpbindir"/mount
+		if [ "$1" == "rbind" ]; then
+			echo 'if [[ "$@" =~ --rbind ]]; then echo "Bind mount fail"; exit 1; fi' >> "$tmpbindir"/mount
 		elif [ "$1" == "tmpfs" ]; then
 			echo 'if [[ "$@" =~ tmpfs ]]; then echo "tmpfs mount fail"; exit 1; fi' >> "$tmpbindir"/mount
 		fi
@@ -325,7 +335,7 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 		chmod +x "$tmpbindir"/mount
 	}
 
-	MOCK_MOUNT bind
+	MOCK_MOUNT rbind
 	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- touch /tmp/a
 	[ "$status" -eq 255 ]
 	[ "$output" == "Error: mount --bind failed: Bind mount fail" ]
@@ -408,7 +418,7 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /tmp// -- true
+	run "$BATS_TEST_DIRNAME"/transient-folder-overlay /tmp// -- true
 	[ "$status" -eq 1 ]
 	[ "$output" == "Error: Cannot work on /tmp (as the tool makes internal use ot it)." ]
 }

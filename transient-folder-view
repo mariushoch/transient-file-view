@@ -25,9 +25,15 @@ function clean_final {
 		fusermount -u "$dir" 2>/dev/null
 	done
 	for dir in "${FINAL_UMOUNT_DIRS[@]}"; do
-		umount "$dir" 2>/dev/null
+		if ! findmnt "$dir" > /dev/null; then
+			continue
+		fi
+		if ! umount "$dir" 2>/dev/null && ! umount -l "$dir" 2>/dev/null; then
+			echo "Error: Failed to umount \"$dir\", aborting." >&2
+			exit 1
+		fi
 	done
-	rm -rf "$MAIN_TMP_DIR"
+	rm --one-file-system -rf "$MAIN_TMP_DIR"
 
 	exit "$exitCode"
 }
@@ -36,6 +42,16 @@ function assert_valid_directory {
 	# Horrible things will happen if we try to work on /tmp (as our tmp directories/ mounts are in there)
 	if [ "$1" == "/tmp" ]; then
 		echo "Error: Cannot work on /tmp (as the tool makes internal use ot it)." >&2
+		return 1
+	fi
+	# We can't do anything useful with /dev anyway (and fuse-overlayfs needs access to /dev/fuse)
+	if [[ "$1" =~ ^\/dev(\/|$) ]]; then
+		echo "Error: Cannot work on /dev." >&2
+		return 1
+	fi
+	# Not tested, but this is surely going to cause trouble.
+	if [ "$1" == "/" ]; then
+		echo "Error: Cannot work on /." >&2
 		return 1
 	fi
 }
@@ -97,6 +113,23 @@ function usage_details {
 	fi
 }
 
+function mount_oldroot {
+	local MOUNT_PATH MOUNT_OUT MOUNT_STATUS
+	MOUNT_PATH="$MAIN_TMP_DIR/oldroot"
+	mkdir -p "$MOUNT_PATH"
+	FINAL_UMOUNT_DIRS+=("$MOUNT_PATH")
+	MOUNT_OUT="$(LC_ALL=C mount --rbind -o ro / "$MOUNT_PATH" 2>&1)"
+	MOUNT_STATUS=$?
+	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
+		if [ "$VERBOSE" -gt 0 ]; then
+			echo "Warning: mount --bind partially failed: $MOUNT_OUT" >&2
+		fi
+	elif [ $MOUNT_STATUS -gt 0 ]; then
+		echo "Error: mount --bind failed: $MOUNT_OUT" >&2
+		return 255
+	fi
+}
+
 function handle_directory {
 	local DIRECTORY="$1"
 	local DIRECTORY_OPTIONS="$2"
@@ -108,21 +141,6 @@ function handle_directory {
 
 	if [ "$DEBUG" -gt 0 ]; then
 		echo "Acting on folder \"$DIRECTORY\"." >&2
-	fi
-
-	# XXX: If we have fuse-overlayfs we could use that instead of bind mounts (as it preserves owner/group)
-	local tmpdir MOUNT_OUT MOUNT_STATUS
-	tmpdir="$(mktemp -p "$MAIN_TMP_DIR" -d mount-bind.XXXXXXXXXX)"
-	FINAL_UMOUNT_DIRS+=("$tmpdir")
-	MOUNT_OUT="$(mount --bind -o ro "$DIRECTORY" "$tmpdir" 2>&1)"
-	MOUNT_STATUS=$?
-	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
-		if [ "$VERBOSE" -gt 0 ]; then
-			echo "Warning: mount --bind partially failed: $MOUNT_OUT" >&2
-		fi
-	elif [ $MOUNT_STATUS -gt 0 ]; then
-		echo "Error: mount --bind failed: $MOUNT_OUT" >&2
-		return 255
 	fi
 
 	# This is equal to rsync -a (but -g and -o)
@@ -163,7 +181,7 @@ function handle_directory {
 			echo "$DIRECTORY_OPTIONS" | \
 				grep -oP "(?<=,exclude=).*?$NEXT_OPTION_LOOKAHEAD")
 
-		RSYNC_ARGS+=("$tmpdir/" "$DIRECTORY")
+		RSYNC_ARGS+=("$MAIN_TMP_DIR/oldroot/$DIRECTORY/" "$DIRECTORY")
 
 		if [ "$DEBUG" -gt 0 ]; then
 			RSYNC_ARGS+=("--progress")
@@ -187,7 +205,7 @@ function handle_directory {
 		workdir="$(mktemp -p "$MAIN_TMP_DIR" -d workdir.XXXXXXXXXX)"
 		upperdir="$(mktemp -p "$MAIN_TMP_DIR" -d upperdir.XXXXXXXXXX)"
 
-		OVERLAYFS_ARGS+=("-o" "lowerdir=$tmpdir/" "-o" "workdir=$workdir" "-o" "upperdir=$upperdir" "$DIRECTORY")
+		OVERLAYFS_ARGS+=("-o" "lowerdir=$MAIN_TMP_DIR/oldroot/$DIRECTORY" "-o" "workdir=$workdir" "-o" "upperdir=$upperdir" "$DIRECTORY")
 		if [ "$DEBUG" -gt 0 ]; then
 			echo "Running: fuse-overlayfs ${OVERLAYFS_ARGS[*]}" >&2
 		fi
@@ -285,6 +303,9 @@ fi
 
 MAIN_TMP_DIR="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
 trap "clean_final" EXIT
+if ! mount_oldroot; then
+	exit 255
+fi
 
 for FILE in "${FILES[@]}"; do
 	FILE_RAW="$(echo "$FILE" | grep -oP "^.*?$NEXT_OPTION_LOOKAHEAD")"
