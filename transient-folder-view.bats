@@ -61,6 +61,49 @@ teardown() {
 	[ "$output" == "1" ]
 	[ ! -f "$tmpdir/a" ]
 }
+@test "transient-folder-snapshot: File" {
+	# File "a" is transient, file "b" isn't.
+	echo 0 > "$tmpdir"/a
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/a" -- sh -c "echo 1 > $tmpdir/a; echo 2 > $tmpdir/b; cat $tmpdir/a"
+
+	[ "$status" -eq 0 ]
+	[ "$output" == "1" ]
+	[ "$(cat "$tmpdir"/a)" == "0" ]
+	[ "$(cat "$tmpdir"/b)" == "2" ]
+}
+@test "transient-folder-snapshot: File debug" {
+	echo 0 > "$tmpdir"/FILENAME
+	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot --debug "$tmpdir/FILENAME" -- true
+
+	[ "$status" -eq 0 ]
+	[[ "$output" =~ ^Acting\ on\ file\ \".*\/FILENAME\"\.$ ]]
+}
+@test "transient-folder-snapshot: File - cat failure" {
+	{
+		echo '#!/bin/bash'
+		echo 'exit 23'
+	} > "$tmpbindir"/cat
+	chmod +x "$tmpbindir"/cat
+	echo 0 > "$tmpdir"/FILENAME
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/FILENAME" -- true
+
+	[ "$status" -ne 0 ]
+	[[ "$output" =~ ^Error:\ Copying\ contents\ of\ \".*\/FILENAME\"\ to\ \".*\"\.$ ]]
+}
+@test "transient-folder-snapshot: File - mount failure" {
+	{
+		echo '#!/bin/bash'
+		echo 'if [[ "$@" =~ --bind ]]; then echo "MOUNT-ERROR"; exit 1; fi'
+		echo 'exec /usr/bin/mount "$@"'
+	} > "$tmpbindir"/mount
+	chmod +x "$tmpbindir"/mount
+
+	echo 0 > "$tmpdir"/FILENAME
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/FILENAME" -- true
+
+	[ "$status" -ne 0 ]
+	[[ "$output" =~ ^Error:\ Mounting\ \".*\"\ to\ \".*\/FILENAME\":\ \"MOUNT-ERROR\"\.$ ]]
+}
 @test "transient-folder-view snapshot" {
 	run "$BATS_TEST_DIRNAME"/transient-folder-view snapshot "$tmpdir" -- findmnt --noheadings -o FSTYPE "$tmpdir"
 
@@ -158,7 +201,7 @@ teardown() {
 @test "transient-folder-snapshot: Non-existent folder" {
 run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- true
 	[ "$status" -eq 1 ]
-	[ "$output" == "Error: Cannot act on \"/does-not-exist\": No such directory" ]
+	[ "$output" == "Error: Cannot act on \"/does-not-exist\": No such file or directory" ]
 }
 @test "transient-folder-snapshot: Exit code" {
 	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- sh -c 'exit 123'

@@ -63,7 +63,16 @@ function assert_valid_directory_options {
 	fi
 }
 
+function assert_valid_file {
+	# We already know that the file exists
+	if [ ! -r "$1" ]; then
+		echo "Error: Can't read file \"$1\"." >&2
+		return 1
+	fi
+}
+
 function usage {
+	# TODO: Update
 	echo "Transient Folder View 0.4.0-PRE"
 	if [ -z "$BIN_FLAVOR" ]; then
 		echo "Usage: $(basename "$0") [--help] [overlay|snapshot] [--verbose|--debug] directory [directory]* [-- command [ARG]...]"
@@ -218,6 +227,29 @@ function handle_directory {
 	fi
 }
 
+function handle_file {
+	local FILE="$1"
+	local FILE_OPTIONS="$2"
+
+	if ! assert_valid_file "$FILE"; then
+		return 1
+	fi
+
+	if [ "$DEBUG" -gt 0 ]; then
+		echo "Acting on file \"$FILE\"." >&2
+	fi
+
+	TMP_FILE="$(mktemp -p "$MAIN_TMP_DIR" file.XXXXXXXXXX)"
+	if ! cat "$FILE" > "$TMP_FILE"; then
+		echo "Error: Copying contents of \"$FILE\" to \"$TMP_FILE\"." >&2
+		return 255
+	fi
+	if ! MOUNT_OUT="$(mount --bind "$TMP_FILE" "$FILE" 2>&1)"; then
+		echo "Error: Mounting \"$TMP_FILE\" to \"$FILE\": \"$MOUNT_OUT\"." >&2
+		return 255
+	fi
+}
+
 if [ "$1" == "--help" ]; then
 	usage
 	exit
@@ -314,8 +346,10 @@ for FILE in "${FILES[@]}"; do
 
 	if [ -d "$FILE" ]; then
 		handle_directory "$FILE" "$FILE_OPTIONS"
+	elif [ -f "$FILE" ]; then
+		handle_file "$FILE" "$FILE_OPTIONS"
 	else
-		echo "Error: Cannot act on \"$FILE_RAW\": No such directory" >&2
+		echo "Error: Cannot act on \"$FILE_RAW\": No such file or directory" >&2
 		exit 1
 	fi
 	exitCode=$?
