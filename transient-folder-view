@@ -1,13 +1,6 @@
 #!/bin/bash
 
-NEXT_OPTION_LOOKAHEAD='(?=,exclude=.|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)'
-
-BIN_FLAVOR=
-if [[ "$(basename "$0")" == "transient-folder-overlay" ]]; then
-	BIN_FLAVOR=overlay
-elif [[ "$(basename "$0")" == "transient-folder-snapshot" ]]; then
-	BIN_FLAVOR=snapshot
-fi
+NEXT_OPTION_LOOKAHEAD='(?=,exclude=.|,snapshot|,overlay|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)'
 
 function silent {
 	"$@" >/dev/null 2>&1
@@ -57,7 +50,7 @@ function assert_valid_directory {
 }
 
 function assert_valid_directory_options {
-	if [ ! "$(echo "$1" | grep -oP "^(,exclude=.*?$NEXT_OPTION_LOOKAHEAD|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer)*")" == "$1" ]; then
+	if [ ! "$(echo "$1" | grep -oP "^(,exclude=.*?$NEXT_OPTION_LOOKAHEAD|,overlay|,snapshot|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer)*")" == "$1" ]; then
 		echo "Error: Invalid directory format, please refer to \"$(basename "$0") --help\"." >&2
 		return 1
 	fi
@@ -72,54 +65,32 @@ function assert_valid_file {
 }
 
 function usage {
-	# TODO: Update
-	echo "Transient Folder View 0.4.0-PRE"
-	if [ -z "$BIN_FLAVOR" ]; then
-		echo "Usage: $(basename "$0") [--help] [overlay|snapshot] [--verbose|--debug] directory [directory]* [-- command [ARG]...]"
-	else
-		echo "Usage: $(basename "$0") [--help] [--verbose|--debug] directory [directory]* [-- command [ARG]...]"
-	fi
+	echo "Transient File View 0.5.0"
+	echo "Usage: $(basename "$0") [--help] [--verbose|--debug] file [file]* [-- command [ARG]...]"
 	echo
-	echo "Create transient views of directories in a user namespace. This creates a new mount namespace where"
-	echo "we will create transient versions of the given directories."
-	echo
-	usage_details
+	echo "Create transient views of files or directories in a user namespace. This creates a new mount namespace where"
+	echo "we will create transient versions of the given files or directories."
+	echo "For directories these views are either temporary snapshots (\"snapshot\") created by rsync-ing the folder content"
+	echo "into a tmpfs mount, or overlays (\"overlay\") created by fuse-overlayfs."
 	echo
 	echo -e "\t--help			Show this help"
 	echo -e "\t--verbose		Print verbose debugging info"
 	echo -e "\t--debug			Show all debug information (implies --verbose)"
-	echo -e "\tdirectory		directories to be snapshotted"
+	echo -e "\tfile			file or directory to create a view of"
 	echo -e "\tcommand			if command is omitted an interactive shell will be launched"
 	echo
-	echo "Directories can be given using the following syntax:"
-	if [ -z "$BIN_FLAVOR" ] || [ "$BIN_FLAVOR" == "snapshot" ]; then
-		echo -e "\tpath/of/the/directory[,nopreserveowner][,nopreservegroup][,toleratepartialtransfer][,exclude=PATTERN]*"
-	else
-		echo -e "\tpath/of/the/directory[,nopreserveowner][,nopreservegroup]"
-	fi
+	echo "Files or directories can be given using the following syntax:"
+	echo -e "\tpath/of/the/file[,snapshot][,overlay][,nopreserveowner][,nopreservegroup][,toleratepartialtransfer][,exclude=PATTERN]*"
+	echo
+	echo -e "for directories only:"
+	echo -e "\t\"snapshot\" to create a tmporary snapshot of the directory in a new tmpfs (mutually exclusive with \"overlay\")."
+	echo -e "\t\"overlay\" to use fuse-overlayfs for the directory view (mutually exclusive with \"snapshot\")."
 	echo -e "\t\"nopreserveowner\" to not preserve file ownership (don't pass rsync -o or use fuse-overlayfs -o squash_to_uid)."
 	echo -e "\t\"nopreservegroup\" to not preserve file group (don't pass rsync -g or use fuse-overlayfs -o squash_to_gid)."
-	if [ -z "$BIN_FLAVOR" ]; then
-		echo
-		echo -e "\tThe following options apply only to snapshot mode:"
-	fi
-	if [ -z "$BIN_FLAVOR" ] || [ "$BIN_FLAVOR" == "snapshot" ]; then
-		echo -e "\t\"exclude\" PATTERN is passed to \"rsync\" to determine which files not to sync into the snapshot"
-		echo -e "\t\t(rsync --exclude), can be given multiple times."
-		echo -e "\t\"toleratepartialtransfer\" if set, don't fail on partial transfer errors (exit code 23/24 from rsync)."
-	fi
-}
-
-function usage_details {
-	if [ -z "$BIN_FLAVOR" ]; then
-		echo "These views are either temporary snapshots (\"snapshot\") created by rsync-ing the folder content"
-		echo "into a tmpfs mount, or overlays (\"overlay\") created by fuse-overlayfs."
-	elif [ "$BIN_FLAVOR" == "snapshot" ]; then
-		echo "These views are temporary snapshots (\"snapshot\") created by rsync-ing the folder content"
-		echo "into a tmpfs mount."	
-	else
-		echo "These views are temporary overlays created using fuse-overlayfs."	
-	fi
+	echo -e "directory \"snapshot\" mode only:"
+	echo -e "\t\"exclude\" PATTERN is passed to \"rsync\" to determine which files not to sync into the snapshot."
+	echo -e "\t\t(rsync --exclude), can be given multiple times."
+	echo -e "\t\"toleratepartialtransfer\" if set, don't fail on partial transfer errors (exit code 23/24 from rsync)."
 }
 
 function mount_oldroot {
@@ -131,10 +102,10 @@ function mount_oldroot {
 	MOUNT_STATUS=$?
 	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
 		if [ "$VERBOSE" -gt 0 ]; then
-			echo "Warning: mount --bind partially failed: $MOUNT_OUT" >&2
+			echo "Warning: mount --rbind partially failed: $MOUNT_OUT" >&2
 		fi
 	elif [ $MOUNT_STATUS -gt 0 ]; then
-		echo "Error: mount --bind failed: $MOUNT_OUT" >&2
+		echo "Error: mount --rbind failed: $MOUNT_OUT" >&2
 		return 255
 	fi
 }
@@ -156,6 +127,15 @@ function handle_directory {
 	local RSYNC_ARGS=("-rlptD")
 	# Performance: Don't checksum the newly copied files
 	RSYNC_ARGS+=("--checksum-choice=none")
+
+	local OVERLAY=0
+	if [[ "$DIRECTORY_OPTIONS" =~ ,overlay(,|$) ]]; then
+		if [[ "$DIRECTORY_OPTIONS" =~ ,snapshot(,|$) ]]; then
+			echo "Options \"snapshot\" and \"overlay\" are mutually exclusive." >&2
+			return 1
+		fi
+		OVERLAY=1
+	fi
 
 	local OVERLAYFS_ARGS=()
 
@@ -210,6 +190,11 @@ function handle_directory {
 			fi
 		fi
 	else
+		if ! command -v fuse-overlayfs >/dev/null; then
+			echo 'Error: fuse-overlayfs is needed for directory overlays.' >&2
+			return 1
+		fi
+
 		local workdir upperdir
 		workdir="$(mktemp -p "$MAIN_TMP_DIR" -d workdir.XXXXXXXXXX)"
 		upperdir="$(mktemp -p "$MAIN_TMP_DIR" -d upperdir.XXXXXXXXXX)"
@@ -283,24 +268,6 @@ MAP_USER="$3"
 MAP_GROUP="$5"
 shift 5
 
-OVERLAY=0
-if [ -n "$BIN_FLAVOR" ]; then
-	if [ "$BIN_FLAVOR" == "overlay" ]; then
-		OVERLAY=1
-	fi
-elif [ "$1" == "overlay" ]; then
-	OVERLAY=1
-	shift
-elif [ "$1" == "snapshot" ]; then
-	shift
-else
-	echo 'Error: First argument must be either "overlay" or "snapshot"!' >&2
-	echo >&2
-
-	usage >&2
-	exit 1
-fi
-
 VERBOSE=0
 DEBUG=0
 FILES=()
@@ -326,12 +293,6 @@ while [ -n "$1" ]; do
 		;;
 	esac
 done
-
-if [ "$OVERLAY" -gt 0 ] && ! command -v fuse-overlayfs >/dev/null; then
-	echo 'Error: fuse-overlayfs is needed for directory overlays.' >&2
-
-	exit 1
-fi
 
 MAIN_TMP_DIR="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
 trap "clean_final" EXIT

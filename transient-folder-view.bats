@@ -27,70 +27,51 @@ teardown() {
 	[[ "$output" =~ Usage:\ transient-folder-view ]]
 	[[ "$output" =~ toleratepartialtransfer ]]
 	[[ "$output" =~ if\ set,\ don\'t\ fail\ on ]]
-	[[ "$output" =~ only\ to\ snapshot\ mode ]]
 }
-@test "transient-folder-overlay --help" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay --help
-	[ "$status" -eq 0 ]
-
-	[[ "$output" =~ Usage:\ transient-folder-overlay ]]
-	[[ ! "$output" =~ toleratepartialtransfer ]]
-	[[ ! "$output" =~ if\ set,\ don\'t\ fail\ on ]]
-	[[ ! "$output" =~ only\ to\ snapshot\ mode ]]
-}
-@test "transient-folder-snapshot --help" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot --help
-	[ "$status" -eq 0 ]
-
-	[[ "$output" =~ Usage:\ transient-folder-snapshot ]]
-	[[ "$output" =~ toleratepartialtransfer ]]
-	[[ "$output" =~ if\ set,\ don\'t\ fail\ on ]]
-	[[ ! "$output" =~ only\ to\ snapshot\ mode ]]
-}
-@test "transient-folder-snapshot: Too few parameters" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot
+@test "transient-folder-view: Too few parameters" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-view
 
 	[[ "$output" =~ Error:\ Expected\ at\ least ]]
-	[[ "$output" =~ Usage:\ transient-folder-snapshot ]]
+	[[ "$output" =~ Usage:\ transient-folder-view ]]
 	[ "$status" -eq 1 ]
 }
-@test "transient-folder-snapshot" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- sh -c "echo 1 > $tmpdir/a; cat $tmpdir/a"
+@test "transient-folder-view: Directory" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- sh -c "echo 1 > $tmpdir/a; cat $tmpdir/a"
 
 	[ "$status" -eq 0 ]
 	[ "$output" == "1" ]
 	[ ! -f "$tmpdir/a" ]
 }
-@test "transient-folder-snapshot: File" {
+@test "transient-folder-view: File" {
 	# File "a" is transient, file "b" isn't.
 	echo 0 > "$tmpdir"/a
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/a" -- sh -c "echo 1 > $tmpdir/a; echo 2 > $tmpdir/b; cat $tmpdir/a"
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir/a" -- sh -c "echo 1 > $tmpdir/a; echo 2 > $tmpdir/b; cat $tmpdir/a"
 
 	[ "$status" -eq 0 ]
 	[ "$output" == "1" ]
 	[ "$(cat "$tmpdir"/a)" == "0" ]
 	[ "$(cat "$tmpdir"/b)" == "2" ]
 }
-@test "transient-folder-snapshot: File debug" {
+@test "transient-folder-view: File debug" {
 	echo 0 > "$tmpdir"/FILENAME
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot --debug "$tmpdir/FILENAME" -- true
+	run "$BATS_TEST_DIRNAME"/transient-folder-view --debug "$tmpdir/FILENAME" -- true
 
 	[ "$status" -eq 0 ]
 	[[ "$output" =~ ^Acting\ on\ file\ \".*\/FILENAME\"\.$ ]]
 }
-@test "transient-folder-snapshot: File - cat failure" {
+@test "transient-folder-view: File - cat failure" {
 	{
 		echo '#!/bin/bash'
 		echo 'exit 23'
 	} > "$tmpbindir"/cat
 	chmod +x "$tmpbindir"/cat
 	echo 0 > "$tmpdir"/FILENAME
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/FILENAME" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir/FILENAME" -- true
 
 	[ "$status" -ne 0 ]
 	[[ "$output" =~ ^Error:\ Copying\ contents\ of\ \".*\/FILENAME\"\ to\ \".*\"\.$ ]]
 }
-@test "transient-folder-snapshot: File - mount failure" {
+@test "transient-folder-view: File - mount failure" {
 	{
 		echo '#!/bin/bash'
 		echo 'if [[ "$@" =~ --bind ]]; then echo "MOUNT-ERROR"; exit 1; fi'
@@ -99,13 +80,13 @@ teardown() {
 	chmod +x "$tmpbindir"/mount
 
 	echo 0 > "$tmpdir"/FILENAME
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/FILENAME" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir/FILENAME" -- true
 
 	[ "$status" -ne 0 ]
 	[[ "$output" =~ ^Error:\ Mounting\ \".*\"\ to\ \".*\/FILENAME\":\ \"MOUNT-ERROR\"\.$ ]]
 }
-@test "transient-folder-view snapshot" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-view snapshot "$tmpdir" -- findmnt --noheadings -o FSTYPE "$tmpdir"
+@test "transient-folder-view: snapshot" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,snapshot" -- findmnt --noheadings -o FSTYPE "$tmpdir"
 
 	[ "$status" -eq 0 ]
 	[ "$output" == "tmpfs" ]
@@ -115,16 +96,16 @@ teardown() {
 	tmpFilesPrior="$(find "$tmp" -name '*transient-folder-view*' 2>/dev/null | wc -l)"
 
 	# snapshot success
-	run "$BATS_TEST_DIRNAME"/transient-folder-view snapshot "$tmpdir" -- true
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,snapshot" -- true
 	[ "$status" -eq 0 ]
 	[ "$output" == "" ]
 
-	# snapshot mount --bind will fail here
-	run "$BATS_TEST_DIRNAME"/transient-folder-view snapshot /dev -- true
+	# We don't allow working on /dev
+	run "$BATS_TEST_DIRNAME"/transient-folder-view '/dev' -- true
 	[ "$status" -gt 0 ]
 
-	# snapshot doesn't allow working on /tmp
-	run "$BATS_TEST_DIRNAME"/transient-folder-view snapshot /tmp -- true
+	# We don't allow working on /tmp
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /tmp -- true
 	[ "$status" -gt 0 ]
 
 	# Make rsync fail
@@ -133,7 +114,7 @@ teardown() {
 		echo 'exit 23'
 	} > "$tmpbindir"/rsync
 	chmod +x "$tmpbindir"/rsync
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view snapshot --debug "$tmpdir" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view --debug "$tmpdir" -- true
 	[ "$status" -gt 0 ]
 	rm "$tmpbindir"/rsync
 
@@ -141,17 +122,9 @@ teardown() {
 	# shellcheck disable=SC2030
 	if [ -n "$can_use_fuse_overlayfs" ]; then
 		# overlay success
-		run "$BATS_TEST_DIRNAME"/transient-folder-view overlay "$tmpdir" -- true
+		run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,overlay" -- true
 		[ "$status" -eq 0 ]
 		[ "$output" == "" ]
-
-		# overlay mount --bind will fail here	
-		run "$BATS_TEST_DIRNAME"/transient-folder-view overlay /dev -- true
-		[ "$status" -gt 0 ]
-
-		# overlay doesn't allow working on /tmp
-		run "$BATS_TEST_DIRNAME"/transient-folder-view overlay /tmp -- true
-		[ "$status" -gt 0 ]
 	fi
 
 	# Make fuse-overlayfs fail
@@ -160,80 +133,98 @@ teardown() {
 		echo 'exit 23'
 	} > "$tmpbindir"/fuse-overlayfs
 	chmod +x "$tmpbindir"/fuse-overlayfs
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view overlay --debug "$tmpdir" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view --debug "$tmpdir,overlay" -- true
 	[ "$status" -gt 0 ]
 	rm "$tmpbindir"/fuse-overlayfs
 
 	tmpFilesNow="$(find "$tmp" -name '*transient-folder-view*' 2>/dev/null | wc -l)"
 	[ "$tmpFilesPrior" -eq "$tmpFilesNow" ]
 }
-@test "transient-folder-view overlay" {
+@test "transient-folder-view: overlay" {
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
 	if [ -z "$can_use_fuse_overlayfs" ]; then
 		skip
 	fi
-	run "$BATS_TEST_DIRNAME"/transient-folder-view overlay "$tmpdir" -- findmnt --noheadings -o FSTYPE "$tmpdir"
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,overlay" -- findmnt --noheadings -o FSTYPE "$tmpdir"
 
 	[ "$status" -eq 0 ]
 	[ "$output" == "fuse.fuse-overlayfs" ]
 }
-@test "transient-folder-snapshot: Invalid directory options" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,nopreservegroup,banana,exclude=foo,exclude=bar," -- true
+@test "transient-folder-view: Invalid directory options" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,nopreservegroup,snapshot,banana,exclude=foo,exclude=bar," -- true
 	[ "$status" -ne 0 ]
-	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-snapshot --help\"." ]
+	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-view --help\"." ]
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,exclude=.git,nopreservegroup,banana,nopreserveowner" -- true
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,exclude=.git,nopreservegroup,banana,nopreserveowner" -- true
 	[ "$status" -ne 0 ]
-	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-snapshot --help\"." ]
+	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-view --help\"." ]
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,nopreservegroup,nopreserveuser" -- true
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,snapshot,nopreservegroup,nopreserveuser" -- true
 	[ "$status" -ne 0 ]
-	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-snapshot --help\"." ]
+	[ "$output" == "Error: Invalid directory format, please refer to \"transient-folder-view --help\"." ]
 }
-@test "transient-folder-snapshot: Empty exclude" {
+@test "transient-folder-view: Empty exclude" {
 	echo 4 > "$tmpdir/a"
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,exclude=,exclude=,nopreservegroup" -- sh -c "cat $tmpdir/a"
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,exclude=,exclude=,nopreservegroup" -- sh -c "cat $tmpdir/a"
 	[ "$status" -eq 0 ]
 	[ "$output" == "4" ]
 }
-@test "transient-folder-snapshot: Non-existent folder" {
-run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- true
+@test "transient-folder-view: Non-existent folder" {
+run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" /does-not-exist -- true
 	[ "$status" -eq 1 ]
 	[ "$output" == "Error: Cannot act on \"/does-not-exist\": No such file or directory" ]
 }
-@test "transient-folder-snapshot: Exit code" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- sh -c 'exit 123'
+@test "transient-folder-view: Exit code" {
+	maybeOverlay=",overlay"
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
+		maybeOverlay=""
+	fi
+
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- sh -c 'exit 123'
+	[ "$status" -eq 123 ]
+	[ "$output" == "" ]
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir$maybeOverlay" -- sh -c 'exit 123'
+	[ "$status" -eq 123 ]
+	[ "$output" == "" ]
+
+	mkdir "$tmpdir/a" "$tmpdir/b"
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir/a$maybeOverlay" "$tmpdir/b" -- sh -c 'exit 123'
 	[ "$status" -eq 123 ]
 	[ "$output" == "" ]
 }
-@test "transient-folder-snapshot: Fails for /tmp" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /tmp// -- true
+@test "transient-folder-view: Fails for /tmp" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /tmp// -- true
+	[ "$status" -eq 1 ]
+	[ "$output" == "Error: Cannot work on /tmp (as the tool makes internal use ot it)." ]
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /tmp//,overlay -- true
 	[ "$status" -eq 1 ]
 	[ "$output" == "Error: Cannot work on /tmp (as the tool makes internal use ot it)." ]
 }
-@test "transient-folder-snapshot: Fails for /dev" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /dev -- true
+@test "transient-folder-view: Fails for /dev" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /dev -- true
 	[ "$status" -eq 1 ]
 	[ "$output" == "Error: Cannot work on /dev." ]
 }
-@test "transient-folder-snapshot: Fails for /" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /./ -- true
+@test "transient-folder-view: Fails for /" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /./ -- true
 	[ "$status" -eq 1 ]
 	[ "$output" == "Error: Cannot work on /." ]
 }
-@test "transient-folder-snapshot: Trailing slash" {
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir/" -- sh -c "echo 1 > $tmpdir/a; cat $tmpdir/a"
+@test "transient-folder-view: Trailing slash" {
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir/,snapshot" -- sh -c "echo 1 > $tmpdir/a; cat $tmpdir/a"
 
 	[ "$status" -eq 0 ]
 	[ "$output" == "1" ]
 	[ ! -f "$tmpdir/a" ]
 }
-@test "transient-folder-snapshot: Folder with spaces" {
+@test "transient-folder-view: Folder with spaces (snapshot)" {
 	mkdir -p /tmp/"transient folder snapshot test"
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /tmp/"transient folder snapshot test" -- \
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /tmp/"transient folder snapshot test,snapshot" -- \
 		sh -c 'cd /tmp/"transient folder snapshot test"; echo CONTENT > a; cat a'
 	[ "$status" -eq 0 ]
 	[ "$output" == "CONTENT" ]
@@ -241,14 +232,14 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 
 	rm -rf /tmp/"transient folder snapshot test"
 }
-@test "transient-folder-snapshot: Folder with new lines" {
+@test "transient-folder-view: Folder with new lines (snapshot)" {
 	DIRNAME="$(echo -e "/tmp/transient folder snapshot\ntest/")"
 	mkdir -p "$DIRNAME"
 	echo EXCLUDED > "$DIRNAME/stuff"
 	echo -n a > "$DIRNAME/CONTENT"
 
 	# shellcheck disable=SC2016
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$DIRNAME,exclude=stuff" -- \
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$DIRNAME,snapshot,exclude=stuff" -- \
 		sh -c 'cd "$1"; echo -n b >> CONTENT; cat *' -- "$DIRNAME"
 	[ "$status" -eq 0 ]
 	[ "$output" == "ab" ]
@@ -256,60 +247,55 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 
 	rm -rf "$DIRNAME"
 }
-@test "transient-folder-snapshot: Multiple folders" {
-	mkdir -p /tmp/transient-folder-snapshot-test/data /tmp/transient-folder-snapshot-test/blah /tmp/transient-folder-snapshot-test_1
+@test "transient-folder-view: Multiple folders" {
+	mkdir -p "$tmpdir"/dirA "$tmpdir"/dirB
 
-	echo 1 > /tmp/transient-folder-snapshot-test/file.small
-	echo 2 > /tmp/transient-folder-snapshot-test/file.large
-	echo BLAH > /tmp/transient-folder-snapshot-test/data/stuff
-	echo HELLO > /tmp/transient-folder-snapshot-test/blah/foo.bar
-	echo SHOULD_NOT_GET_EXCLUDED > /tmp/transient-folder-snapshot-test_1/file.large
+	echo SHOULD_NOT_GET_EXCLUDED > "$tmpdir"/dirA/file.large
+	echo 1 > "$tmpdir"/dirB/file.small
+	echo 2 > "$tmpdir"/dirB/file.large
+	echo blah > "$tmpdir"/dirB/blah
 
 	# This should not affect the real copy of these files
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /tmp/transient-folder-snapshot-test_1 /tmp/transient-folder-snapshot-test,exclude=blah,exclude=*.large --\
-		find /tmp/transient-folder-snapshot-test* -type f -delete
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir"/dirA "$tmpdir"/dirB,exclude=blah,exclude=*.large --\
+		find "$tmpdir"/* -type f -delete
 	[ "$status" -eq 0 ]
 	[ "$output" == "" ]
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot /tmp/transient-folder-snapshot-test_1 /tmp/transient-folder-snapshot-test,exclude=blah,exclude=*.large --\
-		find /tmp/transient-folder-snapshot-test*
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir"/dirA "$tmpdir"/dirB,exclude=blah,exclude=*.large --\
+		find "$tmpdir"/
 	[ "$status" -eq 0 ]
 
-	[[ "$output" =~ /tmp/transient-folder-snapshot-test/file.small ]]
-	[[ "$output" =~ /tmp/transient-folder-snapshot-test/data/stuff ]]
-	[[ "$output" =~ /tmp/transient-folder-snapshot-test_1/file.large ]]
+	[[ "$output" =~ "$tmpdir"/dirA/file.large ]]
 	# Excluded files
-	[[ ! "$output" =~ /tmp/transient-folder-snapshot-test/file.large ]]
-	[[ ! "$output" =~ /tmp/transient-folder-snapshot-test/blah/foo.bar ]]
-
-	rm -rf /tmp/transient-folder-snapshot-test*
+	[[ ! "$output" =~ "$tmpdir"/dirB/file.large ]]
+	[[ ! "$output" =~ "$tmpdir"/dirB/blah ]]
 }
-@test "transient-folder-snapshot: Fails nicely if wrapping fails" {
-	run sh -c 'cat '"$BATS_TEST_DIRNAME"'/transient-folder-snapshot | bash /dev/stdin -- . -- true'
+@test "transient-folder-view: Fails nicely if wrapping fails" {
+	run sh -c 'cat '"$BATS_TEST_DIRNAME"'/transient-folder-view | bash /dev/stdin -- . -- true'
 	[ "$output" == "Error: Could not locate own location (needed for wrapped execution)." ]
 	[ "$status" -eq 255 ]
 }
-@test "transient-folder-snapshot: Map user/gid" {
+@test "transient-folder-view: Map user/gid" {
 	if [[ ! "$(unshare --help)" =~ --map-user ]]; then
 		# Needs unshare with --map-user/--map-group support.
 		skip
 	fi
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- id -u
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- id -u
 	[ "$status" -eq 0 ]
 	[ "$output" == "$(id -u)" ]
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- id -g
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- id -g
 	[ "$status" -eq 0 ]
 	[ "$output" == "$(id -g)" ]
 }
-@test "transient-folder-snapshot: Argument parsing (exclude, nopreservegroup, nopreserveowner and toleratepartialtransfer)" {
+@test "transient-folder-view: Snapshot argument parsing (exclude, nopreservegroup, nopreserveowner and toleratepartialtransfer)" {
 	rm -f /tmp/transient-folder-snapshot.log
 
 	echo '#!/bin/bash' > "$tmpbindir"/rsync
 	echo 'echo "rsync $@" >> /tmp/transient-folder-snapshot.log' >> "$tmpbindir"/rsync
 	chmod +x "$tmpbindir"/rsync
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot \
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view \
 		"$tmpdir,nopreservegroup,nopreserveowner" \
 		"$tmpdir,nopreservegroup" \
 		"$tmpdir,nopreserveowner" \
@@ -335,7 +321,7 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[[ "${lines[6]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ --exclude\ meh\ / ]]
 	[[ "${lines[7]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ --exclude\ meh\ / ]]
 }
-@test "transient-folder-snapshot: rsync error handling" {
+@test "transient-folder-view: snapshot rsync error handling" {
 	rm -f /tmp/transient-folder-snapshot.log
 
 	{
@@ -346,16 +332,16 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	} > "$tmpbindir"/rsync
 	chmod +x "$tmpbindir"/rsync
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- true
 	[ "$status" -eq 255 ]
 	[ "$output" == "Error: rsync to create the snapshot failed." ]
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot --verbose "$tmpdir" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view --verbose "$tmpdir" -- true
 	[ "$status" -eq 255 ]
 	[[ "$output" =~ rsync\ error ]]
 	[[ "$output" =~ Error:\ rsync\ to\ create\ the\ snapshot\ failed\. ]]
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot --debug "$tmpdir" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view --debug "$tmpdir" -- true
 	[ "$status" -eq 255 ]
 	[[ "$output" =~ rsync\ error ]]
 	[[ "$output" =~ Error:\ rsync\ to\ create\ the\ snapshot\ failed\. ]]
@@ -366,7 +352,7 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ -o\ / ]]
 	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ -o\ /.*\ /.*\ --progress ]]
 }
-@test "transient-folder-snapshot: mount error handling" {
+@test "transient-folder-view: mount error handling" {
 	function MOCK_MOUNT {
 		echo '#!/bin/bash' > "$tmpbindir"/mount
 		if [ "$1" == "rbind" ]; then
@@ -379,19 +365,24 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	}
 
 	MOCK_MOUNT rbind
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- touch /tmp/a
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- touch /tmp/a
 	[ "$status" -eq 255 ]
-	[ "$output" == "Error: mount --bind failed: Bind mount fail" ]
+	[ "$output" == "Error: mount --rbind failed: Bind mount fail" ]
+
+	MOCK_MOUNT rbind
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,overlay" -- touch /tmp/a
+	[ "$status" -eq 255 ]
+	[ "$output" == "Error: mount --rbind failed: Bind mount fail" ]
 
 	MOCK_MOUNT tmpfs
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- touch /tmp/a
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- touch /tmp/a
 	[ "$status" -eq 255 ]
 	[[ "$output" =~ ^Error:\ Mounting\ tmpfs\ to\ \"/.*\":\ tmpfs\ mount\ fail$ ]]
 }
-@test "transient-folder-snapshot --debug" {
+@test "transient-folder-view: Snapshot --debug" {
 	echo "HEY" > "$tmpdir/a"
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" --debug -- sh -c "cat $tmpdir/a"
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,snapshot" --debug -- sh -c "cat $tmpdir/a"
 	[ "$status" -eq 0 ]
 	[[ "$output" =~ HEY ]]
 	echo "$output" | grep -qF "Acting on folder \"$tmpdir\"."
@@ -399,7 +390,7 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	# to-chk is included in rsync --progress, thus check for that
 	[[ "$output" =~ to-chk ]]
 }
-@test "transient-folder-snapshot: Prepends -- to unshare call" {
+@test "transient-folder-view: Prepends -- to unshare call" {
 	{
 		echo '#!/bin/bash'
 		# shellcheck disable=SC2016
@@ -411,11 +402,11 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	} > "$tmpbindir"/unshare
 	chmod +x "$tmpbindir"/unshare
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- command and args
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- command and args
 	[ "$status" -eq 0 ]
 	[ "$output" == "True" ]
 }
-@test "transient-folder-snapshot: Drops -- from command" {
+@test "transient-folder-view: Drops -- from command" {
 	# unshare that signals that we can't use --map-user
 	{
 		echo '#!/bin/bash'
@@ -426,46 +417,26 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	} > "$tmpbindir"/unshare
 	chmod +x "$tmpbindir"/unshare
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- echo 1
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- echo 1
 	[ "$status" -eq 0 ]
 	[ "$output" == "1" ]
 }
-@test "transient-folder-snapshot: toleratepartialtransfer" {
+@test "transient-folder-view: snapshot with toleratepartialtransfer" {
 	{
 		echo '#!/bin/bash'
 		echo 'exit 23'
 	} > "$tmpbindir"/rsync
 	chmod +x "$tmpbindir"/rsync
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir" -- true
 	[ "$status" -eq 255 ]
 	[ "$output" == "Error: rsync to create the snapshot failed." ]
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir,toleratepartialtransfer" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,toleratepartialtransfer" -- true
 	[ "$status" -eq 0 ]
 	[ "$output" == "" ]
 }
-@test "transient-folder-overlay: Exit code" {
-	# Workaround for a shellcheck 0.7.2 bug
-	# shellcheck disable=SC2030,SC2031
-	if [ -z "$can_use_fuse_overlayfs" ]; then
-		skip
-	fi
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay "$tmpdir" -- sh -c 'exit 123'
-	[ "$status" -eq 123 ]
-	[ "$output" == "" ]
-}
-@test "transient-folder-overlay: Fails for /tmp" {
-	# Workaround for a shellcheck 0.7.2 bug
-	# shellcheck disable=SC2030,SC2031
-	if [ -z "$can_use_fuse_overlayfs" ]; then
-		skip
-	fi
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay /tmp// -- true
-	[ "$status" -eq 1 ]
-	[ "$output" == "Error: Cannot work on /tmp (as the tool makes internal use ot it)." ]
-}
-@test "transient-folder-overlay --debug" {
+@test "transient-folder-view: Overlay --debug" {
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
 	if [ -z "$can_use_fuse_overlayfs" ]; then
@@ -473,13 +444,13 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	fi
 	echo "HEY" > "$tmpdir/a"
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay "$tmpdir" --debug -- sh -c "cat $tmpdir/a"
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,overlay" --debug -- sh -c "cat $tmpdir/a"
 	[ "$status" -eq 0 ]
 	[[ "$output" =~ HEY ]]
 	echo "$output" | grep -qF "Acting on folder \"$tmpdir\"."
 	[[ "$output" =~ Running:\ fuse-overlayfs\ -o\ lowerdir=.+\ -o\ upperdir=.+\ $tmpdir ]]
 }
-@test "transient-folder-overlay: Multiple folders" {
+@test "transient-folder-view: Overlay multiple folders" {
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
 	if [ -z "$can_use_fuse_overlayfs" ]; then
@@ -489,13 +460,13 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	mkdir "$tmpbindir/subfolder"
 	echo "0" > "$tmpbindir/subfolder/file"
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay "$tmpdir" "$tmpbindir" -- sh -c \
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,overlay" "$tmpbindir,overlay" -- sh -c \
 		"echo -n new > $tmpdir/a; echo 1 > $tmpbindir/subfolder/file; cat $tmpdir/a $tmpbindir/subfolder/file"
 	[ "$status" -eq 0 ]
 	[[ "$output" == "new1" ]]
 	[ "$(cat "$tmpdir"/a "$tmpbindir"/subfolder/file)" == 'old0' ]
 }
-@test "transient-folder-overlay: Folder with spaces" {
+@test "transient-folder-view: Overlay folder with spaces" {
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
 	if [ -z "$can_use_fuse_overlayfs" ]; then
@@ -504,14 +475,14 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	mkdir "$tmpdir/a folder with spaces"
 	echo 0 > "$tmpdir/a folder with spaces/a file"
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay "$tmpdir/a folder with spaces" -- sh -c \
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir/a folder with spaces,overlay" -- sh -c \
 		"echo 1 > $tmpdir'/a folder with spaces/a file'; cat $tmpdir'/a folder with spaces/a file'"
 	[ "$status" -eq 0 ]
 	[[ "$output" == "1" ]]
 
 	[ "$(cat "$tmpdir/a folder with spaces/a file")" == '0' ]
 }
-@test "transient-folder-overlay: Folder with new lines" {
+@test "transient-folder-view: Overlay folder with new lines" {
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
 	if [ -z "$can_use_fuse_overlayfs" ]; then
@@ -521,7 +492,7 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	mkdir "$DIRNAME"
 	echo 0 > "$DIRNAME/file"
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay "$DIRNAME" -- sh -c \
+	run "$BATS_TEST_DIRNAME"/transient-folder-view "$DIRNAME,overlay" -- sh -c \
 		"cat \"$DIRNAME\"/file; echo 1 > \"$DIRNAME\"/file; cat \"$DIRNAME\"/file;"
 
 	[ "$status" -eq 0 ]
@@ -529,7 +500,7 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 
 	[ "$(cat "$DIRNAME/file")" == '0' ]
 }
-@test "transient-folder-overlay: nopreservegroup and nopreserveowner" {
+@test "transient-folder-view: overlay with nopreservegroup and nopreserveowner" {
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
 	if [ -z "$can_use_fuse_overlayfs" ]; then
@@ -550,29 +521,29 @@ run "$BATS_TEST_DIRNAME"/transient-folder-snapshot "$tmpdir" /does-not-exist -- 
 	# Yikes: The bind mount maps root:root to nobody:nobody, thus if we "preserve" the owner/group,
 	# that's what we get.
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay /etc -- stat --printf %u-%g /etc/hostname
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /etc,overlay -- stat --printf %u-%g /etc/hostname
 	[ "$status" -eq 0 ]
 	[[ "$output" == "$NB_UID-$NB_GID" ]]
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay /etc,nopreserveowner -- stat --printf %u-%g /etc/hostname
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /etc,overlay,nopreserveowner -- stat --printf %u-%g /etc/hostname
 	[ "$status" -eq 0 ]
 	[[ "$output" == "$UID-$NB_GID" ]]
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay /etc,nopreservegroup -- stat --printf %u-%g /etc/hostname
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /etc,overlay,nopreservegroup -- stat --printf %u-%g /etc/hostname
 	[ "$status" -eq 0 ]
 	[[ "$output" == "$NB_UID-$GID" ]]
 
-	run "$BATS_TEST_DIRNAME"/transient-folder-overlay /etc,nopreservegroup,nopreserveowner -- stat --printf %u-%g /etc/hostname
+	run "$BATS_TEST_DIRNAME"/transient-folder-view /etc,overlay,nopreservegroup,nopreserveowner -- stat --printf %u-%g /etc/hostname
 	[ "$status" -eq 0 ]
 	[[ "$output" == "$UID-$GID" ]]
 }
-@test "transient-folder-overlay: fuse-overlayfs error handling" {
+@test "transient-folder-view: fuse-overlayfs error handling" {
 	{
 		echo '#!/bin/bash'
 		echo 'exit 42'
 	} > "$tmpbindir"/fuse-overlayfs
 	chmod +x "$tmpbindir"/fuse-overlayfs
 
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-overlay "$tmpdir" -- true
+	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-folder-view "$tmpdir,overlay" -- true
 	[[ "$output" == "Error: Mounting fuse-overlayfs failed." ]]
 }
