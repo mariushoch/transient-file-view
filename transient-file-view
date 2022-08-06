@@ -153,6 +153,13 @@ function handle_directory {
 		OVERLAYFS_ARGS+=("-o" "squash_to_uid=0")
 	fi
 
+	local exclude excludes
+	while read -r exclude; do
+		excludes+=("$exclude")
+	done < <(
+		echo "$DIRECTORY_OPTIONS" | \
+			grep -oP "(?<=,exclude=).*?$NEXT_OPTION_LOOKAHEAD")
+
 	if [ "$OVERLAY" -eq 0 ]; then
 		if ! MOUNT_OUT="$(mount -n -t tmpfs tmpfs "$DIRECTORY" 2>&1)"; then
 			echo "Error: Mounting tmpfs to \"$DIRECTORY\": $MOUNT_OUT" >&2
@@ -163,12 +170,9 @@ function handle_directory {
 			TOLERATE_PARTIAL_TRANSFER=1
 		fi
 
-		local exclude
-		while read -r exclude; do
+		for exclude in "${excludes[@]}"; do
 			RSYNC_ARGS+=("--exclude" "$exclude")
-		done < <(
-			echo "$DIRECTORY_OPTIONS" | \
-				grep -oP "(?<=,exclude=).*?$NEXT_OPTION_LOOKAHEAD")
+		done
 
 		RSYNC_ARGS+=("$MAIN_TMP_DIR/oldroot/$DIRECTORY/" "$DIRECTORY")
 
@@ -192,6 +196,10 @@ function handle_directory {
 	else
 		if ! command -v fuse-overlayfs >/dev/null; then
 			echo 'Error: fuse-overlayfs is needed for directory overlays.' >&2
+			return 1
+		fi
+		if [ -n "${excludes[*]}" ]; then
+			echo 'Error: overlay does not support exclude.' >&2
 			return 1
 		fi
 
@@ -294,7 +302,7 @@ while [ -n "$1" ]; do
 	esac
 done
 
-MAIN_TMP_DIR="$(mktemp --tmpdir -d transient-folder-view.XXXXXXXXXX)"
+MAIN_TMP_DIR="$(mktemp --tmpdir -d transient-file-view.XXXXXXXXXX)"
 trap "clean_final" EXIT
 if ! mount_oldroot; then
 	exit 255
