@@ -68,8 +68,8 @@ function usage {
 	echo "Transient File View 0.5.1"
 	echo "Usage: $(basename "$0") [--help] [--verbose|--debug] file [file]* [-- command [ARG]...]"
 	echo
-	echo "Create transient views of files or directories in a user namespace. This creates a new mount namespace where"
-	echo "we will create transient versions of the given files or directories."
+	echo "Create transient views of files or directories in a user namespace. This creates a new mount namespace with"
+	echo "transient versions of the given files or directories."
 	echo "For directories these views are either temporary snapshots (\"snapshot\") created by rsync-ing the folder content"
 	echo "into a tmpfs mount, or overlays (\"overlay\") created by fuse-overlayfs."
 	echo

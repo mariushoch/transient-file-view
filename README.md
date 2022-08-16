@@ -1,48 +1,48 @@
 # Transient Folder View
-Create transient views of directories in a user namespace. This creates a new mount namespace where we will create transient versions of the given directories and mount them over the original directories.
+Create transient views of directories in a user namespace. This creates a new mount namespace with transient versions of the given files or directories.
 
-These views are either temporary snapshots ("snapshot") created by rsync-ing the folder content into a tmpfs mount, or overlays ("overlay") created by [fuse-overlayfs](https://github.com/containers/fuse-overlayfs).
+For directories these views are either temporary snapshots ("snapshot") created by rsync-ing the folder content into a tmpfs mount, or overlays ("overlay") created by [fuse-overlayfs](https://github.com/containers/fuse-overlayfs).
 
-This can, for example, be used to run tests against older versions of a software, without having to actually check out the old version, or for running experimental versions of a software with the actual user configuration.
+This can, for example, be used to run tests against older versions of a software, without having to actually check out the old version, or for safely running experimental versions of a software with actual user data.
 
 ### Usage
 
 ```
-Usage: transient-folder-view [--help] [overlay|snapshot] [--verbose|--debug] directory [directory]* [-- command [ARG]...]
+Usage: transient-file-view [--help] [--verbose|--debug] file [file]* [-- command [ARG]...]
 
-Create transient views of directories in a user namespace. This creates a new mount namespace where
-we will create transient versions of the given directories.
-
-These views are either temporary snapshots ("snapshot") created by rsync-ing the folder content
+Create transient views of files or directories in a user namespace. This creates a new mount namespace where
+we will create transient versions of the given files or directories.
+For directories these views are either temporary snapshots ("snapshot") created by rsync-ing the folder content
 into a tmpfs mount, or overlays ("overlay") created by fuse-overlayfs.
 
         --help                  Show this help
         --verbose               Print verbose debugging info
         --debug                 Show all debug information (implies --verbose)
-        directory               directories to be snapshotted
+        file                    file or directory to create a view of
         command                 if command is omitted an interactive shell will be launched
 
-Directories can be given using the following syntax:
-        path/of/the/directory[,nopreserveowner][,nopreservegroup][,toleratepartialtransfer][,exclude=PATTERN]*
+Files or directories can be given using the following syntax:
+        path/of/the/file[,snapshot][,overlay][,nopreserveowner][,nopreservegroup][,toleratepartialtransfer][,exclude=PATTERN]*
+
+for directories only:
+        "snapshot" to create a tmporary snapshot of the directory in a new tmpfs (mutually exclusive with "overlay").
+        "overlay" to use fuse-overlayfs for the directory view (mutually exclusive with "snapshot").
         "nopreserveowner" to not preserve file ownership (don't pass rsync -o or use fuse-overlayfs -o squash_to_uid).
         "nopreservegroup" to not preserve file group (don't pass rsync -g or use fuse-overlayfs -o squash_to_gid).
-
-        The following options apply only to snapshot mode:
-        "exclude" PATTERN is passed to "rsync" to determine which files not to sync into the snapshot
+directory "snapshot" mode only:
+        "exclude" PATTERN is passed to "rsync" to determine which files not to sync into the snapshot.
                 (rsync --exclude), can be given multiple times.
         "toleratepartialtransfer" if set, don't fail on partial transfer errors (exit code 23/24 from rsync).
 ```
 
-Alternatively `transient-folder-snapshot` and `transient-folder-overlay` can be used for directly accessing the "snapshot" or "overlay" mode respectively.
-
 ### Example
 ```
 $ pwd
-/tmp/tmp.3N56P6bMiW
+/tmp/tmp.ZWMB8NHI9M
 $ echo 1 > foo
-$ transient-folder-snapshot . -- sh -i
+$ transient-file-view . -- sh -i
 sh-5.1$ pwd
-/tmp/tmp.3N56P6bMiW
+/tmp/tmp.ZWMB8NHI9M
 sh-5.1$ cat foo
 1
 sh-5.1$ rm foo
