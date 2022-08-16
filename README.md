@@ -1,4 +1,4 @@
-# Transient Folder View
+# Transient File View
 Create transient views of directories in a user namespace. This creates a new mount namespace with transient versions of the given files or directories.
 
 For directories these views are either temporary snapshots ("snapshot") created by rsync-ing the folder content into a tmpfs mount, or overlays ("overlay") created by [fuse-overlayfs](https://github.com/containers/fuse-overlayfs).
