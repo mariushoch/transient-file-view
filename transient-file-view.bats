@@ -170,33 +170,34 @@ function runAssertSameAsLast {
 	[ "$output" == "fuse.fuse-overlayfs" ]
 }
 @test "transient-file-view: Invalid directory options" {
-	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,nopreservegroup,snapshot,banana,exclude=foo,exclude=bar," -- true
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,snapshot,banana,exclude=foo,exclude=bar," -- true
 	[ "$status" -ne 0 ]
 	[ "$output" == "Error: Invalid directory format, please refer to \"transient-file-view --help\"." ]
 
-	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,exclude=.git,nopreservegroup,banana,nopreserveowner" -- true
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,exclude=.git,snapshot,banana" -- true
 	[ "$status" -ne 0 ]
 	[ "$output" == "Error: Invalid directory format, please refer to \"transient-file-view --help\"." ]
 
-	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,snapshot,nopreservegroup,nopreserveuser" -- true
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,snapshot,blah" -- true
 	[ "$status" -ne 0 ]
 	[ "$output" == "Error: Invalid directory format, please refer to \"transient-file-view --help\"." ]
 
-	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,overlay,nopreservegroup,nopreserveuser" -- true
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,overlay,blah" -- true
 	[ "$status" -ne 0 ]
 	[ "$output" == "Error: Invalid directory format, please refer to \"transient-file-view --help\"." ]
 }
 @test "transient-file-view: Empty exclude" {
 	echo 4 > "$tmpdir/a"
 
-	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,exclude=,exclude=,nopreservegroup" -- cat "$tmpdir/a"
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,exclude=,exclude=" -- cat "$tmpdir/a"
 	[ "$status" -eq 0 ]
 	[ "$output" == "4" ]
-	runAssertSameAsLast "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,snapshot,exclude=,exclude=,nopreservegroup" -- cat "$tmpdir/a"
+	runAssertSameAsLast "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,snapshot,exclude=,exclude=" -- cat "$tmpdir/a"
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
 	if [ -n "$can_use_fuse_overlayfs" ]; then
-		runAssertSameAsLast "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,overlay,exclude=,exclude=,nopreservegroup" -- cat "$tmpdir/a"
+		# Overlay should not fail if the exclude(s) given are empty
+		runAssertSameAsLast "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,exclude=,overlay,exclude=" -- cat "$tmpdir/a"
 	fi
 }
 @test "transient-file-view: Non-existent folder" {
@@ -350,7 +351,7 @@ function runAssertSameAsLast {
 	[ "$status" -eq 0 ]
 	[ "$output" == "$(id -g)" ]
 }
-@test "transient-file-view: Snapshot argument parsing (exclude, nopreservegroup, nopreserveowner and toleratepartialtransfer)" {
+@test "transient-file-view: Snapshot argument parsing (exclude and toleratepartialtransfer)" {
 	rm -f /tmp/transient-folder-snapshot.log
 
 	echo '#!/bin/bash' > "$tmpbindir"/rsync
@@ -358,14 +359,10 @@ function runAssertSameAsLast {
 	chmod +x "$tmpbindir"/rsync
 
 	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-file-view \
-		"$tmpdir,nopreservegroup,nopreserveowner" \
-		"$tmpdir,nopreservegroup" \
-		"$tmpdir,nopreserveowner" \
 		"$tmpdir" \
 		"$tmpdir,exclude=Blah blub" \
-		"$tmpdir,exclude=a*,nopreserveowner,exclude=blah" \
-		"$tmpdir,exclude=meh,toleratepartialtransfer,nopreserveowner" \
-		"$tmpdir,exclude=meh,nopreserveowner,toleratepartialtransfer" \
+		"$tmpdir,exclude=a*,exclude=blah" \
+		"$tmpdir,exclude=meh,toleratepartialtransfer" \
 		-- true
 
 	[ "$status" -eq 0 ]
@@ -375,13 +372,9 @@ function runAssertSameAsLast {
 	rm -f /tmp/transient-folder-snapshot.log
 
 	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ / ]]
-	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -o\ / ]]
-	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ / ]]
-	[[ "${lines[3]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ -o\ / ]]
-	[[ "${lines[4]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ -o\ --exclude\ Blah\ blub\ / ]]
-	[[ "${lines[5]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ --exclude\ a\*\ --exclude\ blah\ / ]]
-	[[ "${lines[6]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ --exclude\ meh\ / ]]
-	[[ "${lines[7]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ --exclude\ meh\ / ]]
+	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ --exclude\ Blah\ blub\ / ]]
+	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ --exclude\ a\*\ --exclude\ blah\ / ]]
+	[[ "${lines[3]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ --exclude\ meh\ / ]]
 }
 @test "transient-file-view: snapshot rsync error handling" {
 	rm -f /tmp/transient-folder-snapshot.log
@@ -410,9 +403,9 @@ function runAssertSameAsLast {
 
 	run cat /tmp/transient-file-snapshot.log
 	rm -f /tmp/transient-file-snapshot.log
-	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ -o\ / ]]
-	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ -o\ / ]]
-	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ -g\ -o\ /.*\ /.*\ --progress ]]
+	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ / ]]
+	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ / ]]
+	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ /.*\ /.*\ --progress ]]
 }
 @test "transient-file-view: mount error handling" {
 	function MOCK_MOUNT {
@@ -508,7 +501,7 @@ function runAssertSameAsLast {
 	[ "$status" -eq 0 ]
 	[[ "$output" =~ HEY ]]
 	echo "$output" | grep -qF "Acting on folder \"$tmpdir\"."
-	[[ "$output" =~ Running:\ fuse-overlayfs\ -o\ lowerdir=.+\ -o\ upperdir=.+\ $tmpdir ]]
+	[[ "$output" =~ Running:\ fuse-overlayfs\ -o\ squash_to_gid=0\ -o\ squash_to_uid=0\ -o\ lowerdir=.+\ -o\ upperdir=.+\ $tmpdir ]]
 }
 @test "transient-file-view: Overlay multiple folders" {
 	# Workaround for a shellcheck 0.7.2 bug
@@ -526,7 +519,7 @@ function runAssertSameAsLast {
 	[[ "$output" == "new1" ]]
 	[ "$(cat "$tmpdir"/a "$tmpbindir"/subfolder/file)" == 'old0' ]
 }
-@test "transient-file-view: Overlay with nopreservegroup and nopreserveowner" {
+@test "transient-file-view: Overlay file ownership" {
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
 	if [ -z "$can_use_fuse_overlayfs" ]; then
@@ -536,30 +529,10 @@ function runAssertSameAsLast {
 		# Needs unshare with --map-user/--map-group support.
 		skip
 	fi
-	if [ "$(id -u)" == '0' ] || [ ! "$(stat --printf %u-%g /etc/hostname)" == "0-0" ]; then
-		# This test assumes that we aren't root and that /etc/hostname has user/group root
-		skip
-	fi
-	local NB_UID NB_GID GID
-	NB_UID="$(id -u nobody)"
-	NB_GID="$(id -g nobody)"
+	local GID
 	GID="$(id -g)"
-	# Yikes: The bind mount maps root:root to nobody:nobody, thus if we "preserve" the owner/group,
-	# that's what we get.
 
 	run "$BATS_TEST_DIRNAME"/transient-file-view /etc,overlay -- stat --printf %u-%g /etc/hostname
-	[ "$status" -eq 0 ]
-	[[ "$output" == "$NB_UID-$NB_GID" ]]
-
-	run "$BATS_TEST_DIRNAME"/transient-file-view /etc,overlay,nopreserveowner -- stat --printf %u-%g /etc/hostname
-	[ "$status" -eq 0 ]
-	[[ "$output" == "$UID-$NB_GID" ]]
-
-	run "$BATS_TEST_DIRNAME"/transient-file-view /etc,overlay,nopreservegroup -- stat --printf %u-%g /etc/hostname
-	[ "$status" -eq 0 ]
-	[[ "$output" == "$NB_UID-$GID" ]]
-
-	run "$BATS_TEST_DIRNAME"/transient-file-view /etc,overlay,nopreservegroup,nopreserveowner -- stat --printf %u-%g /etc/hostname
 	[ "$status" -eq 0 ]
 	[[ "$output" == "$UID-$GID" ]]
 }

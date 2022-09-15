@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NEXT_OPTION_LOOKAHEAD='(?=,exclude=.|,snapshot|,overlay|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer|$)'
+NEXT_OPTION_LOOKAHEAD='(?=,exclude=.|,snapshot|,overlay|,toleratepartialtransfer|$)'
 
 function silent {
 	"$@" >/dev/null 2>&1
@@ -50,7 +50,7 @@ function assert_valid_directory {
 }
 
 function assert_valid_directory_options {
-	if [ ! "$(echo "$1" | grep -oP "^(,exclude=.*?$NEXT_OPTION_LOOKAHEAD|,overlay|,snapshot|,nopreserveowner|,nopreservegroup|,toleratepartialtransfer)*")" == "$1" ]; then
+	if [ ! "$(echo "$1" | grep -oP "^(,exclude=.*?$NEXT_OPTION_LOOKAHEAD|,overlay|,snapshot|,toleratepartialtransfer)*")" == "$1" ]; then
 		echo "Error: Invalid directory format, please refer to \"$(basename "$0") --help\"." >&2
 		return 1
 	fi
@@ -65,7 +65,7 @@ function assert_valid_file {
 }
 
 function usage {
-	echo "Transient File View 0.5.1"
+	echo "Transient File View 0.6.0"
 	echo "Usage: $(basename "$0") [--help] [--verbose|--debug] file [file]* [-- command [ARG]...]"
 	echo
 	echo "Create transient views of files or directories in a user namespace. This creates a new mount namespace with"
@@ -80,13 +80,11 @@ function usage {
 	echo -e "\tcommand			if command is omitted an interactive shell will be launched"
 	echo
 	echo "Files or directories can be given using the following syntax:"
-	echo -e "\tpath/of/the/file[,snapshot][,overlay][,nopreserveowner][,nopreservegroup][,toleratepartialtransfer][,exclude=PATTERN]*"
+	echo -e "\tpath/of/the/file[,snapshot][,overlay][,toleratepartialtransfer][,exclude=PATTERN]*"
 	echo
 	echo -e "for directories only:"
 	echo -e "\t\"snapshot\" to create a tmporary snapshot of the directory in a new tmpfs (mutually exclusive with \"overlay\")."
 	echo -e "\t\"overlay\" to use fuse-overlayfs for the directory view (mutually exclusive with \"snapshot\")."
-	echo -e "\t\"nopreserveowner\" to not preserve file ownership (don't pass rsync -o or use fuse-overlayfs -o squash_to_uid)."
-	echo -e "\t\"nopreservegroup\" to not preserve file group (don't pass rsync -g or use fuse-overlayfs -o squash_to_gid)."
 	echo -e "directory \"snapshot\" mode only:"
 	echo -e "\t\"exclude\" PATTERN is passed to \"rsync\" to determine which files not to sync into the snapshot."
 	echo -e "\t\t(rsync --exclude), can be given multiple times."
@@ -137,22 +135,8 @@ function handle_directory {
 		OVERLAY=1
 	fi
 
-	local OVERLAYFS_ARGS=()
-
+	local OVERLAYFS_ARGS=("-o" "squash_to_gid=0" "-o" "squash_to_uid=0")
 	local TOLERATE_PARTIAL_TRANSFER=0
-	if [[ ! "$DIRECTORY_OPTIONS" =~ ,nopreservegroup(,|$) ]]; then
-		RSYNC_ARGS+=("-g")
-	else
-		# We use gid 0 here as we will either stay root or map root back to the original group (unshare --map-group)
-		OVERLAYFS_ARGS+=("-o" "squash_to_gid=0")
-	fi
-	if [[ ! "$DIRECTORY_OPTIONS" =~ ,nopreserveowner(,|$) ]]; then
-		RSYNC_ARGS+=("-o")
-	else
-		# We use uid 0 here as we will either stay root or map root back to the original user (unshare --map-user)
-		OVERLAYFS_ARGS+=("-o" "squash_to_uid=0")
-	fi
-
 	local exclude excludes
 	while read -r exclude; do
 		excludes+=("$exclude")
