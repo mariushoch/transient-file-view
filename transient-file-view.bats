@@ -126,15 +126,15 @@ function runAssertSameAsLast {
 	run "$BATS_TEST_DIRNAME"/transient-file-view /tmp -- true
 	[ "$status" -gt 0 ]
 
-	# Make rsync fail
+	# Make tar fail
 	{
 		echo '#!/bin/bash'
 		echo 'exit 23'
-	} > "$tmpbindir"/rsync
-	chmod +x "$tmpbindir"/rsync
+	} > "$tmpbindir"/tar
+	chmod +x "$tmpbindir"/tar
 	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-file-view --debug "$tmpdir,snapshot" -- true
 	[ "$status" -gt 0 ]
-	rm "$tmpbindir"/rsync
+	rm "$tmpbindir"/tar
 
 	# Workaround for a shellcheck 0.7.2 bug
 	# shellcheck disable=SC2030,SC2031
@@ -354,9 +354,15 @@ function runAssertSameAsLast {
 @test "transient-file-view: Snapshot argument parsing (exclude and toleratepartialtransfer)" {
 	rm -f /tmp/transient-folder-snapshot.log
 
-	echo '#!/bin/bash' > "$tmpbindir"/rsync
-	echo 'echo "rsync $@" >> /tmp/transient-folder-snapshot.log' >> "$tmpbindir"/rsync
-	chmod +x "$tmpbindir"/rsync
+	{
+		echo '#!/bin/bash'
+		# shellcheck disable=SC2016
+		echo '[[ "$1" == "c" ]] && echo "tar $@" >> '"$tmpbindir"'/tar-c.log'
+		# shellcheck disable=SC2016
+		echo '[[ "$1" == "x" ]] && echo "tar $@" >> '"$tmpbindir"'/tar-x.log'
+		echo 'true'
+	} >> "$tmpbindir"/tar
+	chmod +x "$tmpbindir"/tar
 
 	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-file-view \
 		"$tmpdir" \
@@ -368,44 +374,53 @@ function runAssertSameAsLast {
 	[ "$status" -eq 0 ]
 	[ "$output" == "" ]
 
-	run cat /tmp/transient-folder-snapshot.log
-	rm -f /tmp/transient-folder-snapshot.log
 
-	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ / ]]
-	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ --exclude\ Blah\ blub\ / ]]
-	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ --exclude\ a\*\ --exclude\ blah\ / ]]
-	[[ "${lines[3]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ --exclude\ meh\ / ]]
+	run cat "$tmpbindir/tar-c.log"
+
+	[[ "${lines[0]}" == "tar c --one-file-system ." ]]
+	[[ "${lines[1]}" == "tar c --one-file-system --exclude Blah blub ." ]]
+	[[ "${lines[2]}" == "tar c --one-file-system --exclude a* --exclude blah ." ]]
+	[[ "${lines[3]}" == "tar c --one-file-system --ignore-failed-read --exclude meh ." ]]
+
+	run cat "$tmpbindir/tar-x.log"
+
+	local i=0
+	while [ $i -lt 4 ]; do
+		[[ "${lines[$i]}" == "tar x --no-same-owner" ]]
+		((i++)) || true
+	done
 }
-@test "transient-file-view: snapshot rsync error handling" {
+@test "transient-file-view: snapshot tar error handling" {
 	rm -f /tmp/transient-folder-snapshot.log
 
 	{
 		echo '#!/bin/bash'
-		echo 'echo "rsync $@" >> /tmp/transient-file-snapshot.log'
-		echo 'echo "rsync error" >&2'
+		# shellcheck disable=SC2016
+		echo '[[ "$1" == "c" ]] && echo "tar $@" >> /tmp/transient-file-snapshot.log'
+		echo 'echo "tar error" >&2'
 		echo 'exit 42'
-	} > "$tmpbindir"/rsync
-	chmod +x "$tmpbindir"/rsync
+	} > "$tmpbindir"/tar
+	chmod +x "$tmpbindir"/tar
 
 	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir" -- true
 	[ "$status" -eq 255 ]
-	[ "$output" == "Error: rsync to create the snapshot failed." ]
+	[ "$output" == "Error: tar to fill the snapshot failed." ]
 
 	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-file-view --verbose "$tmpdir" -- true
 	[ "$status" -eq 255 ]
-	[[ "$output" =~ rsync\ error ]]
-	[[ "$output" =~ Error:\ rsync\ to\ create\ the\ snapshot\ failed\. ]]
+	[[ "$output" =~ tar\ error ]]
+	[[ "$output" =~ Error:\ tar\ to\ fill\ the\ snapshot\ failed\. ]]
 
 	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-file-view --debug "$tmpdir" -- true
 	[ "$status" -eq 255 ]
-	[[ "$output" =~ rsync\ error ]]
-	[[ "$output" =~ Error:\ rsync\ to\ create\ the\ snapshot\ failed\. ]]
+	[[ "$output" =~ tar\ error ]]
+	[[ "$output" =~ Error:\ tar\ to\ fill\ the\ snapshot\ failed\. ]]
 
 	run cat /tmp/transient-file-snapshot.log
 	rm -f /tmp/transient-file-snapshot.log
-	[[ "${lines[0]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ / ]]
-	[[ "${lines[1]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ / ]]
-	[[ "${lines[2]}" =~ ^rsync\ -rlptD\ --checksum-choice=none\ /.*\ /.*\ --progress ]]
+	[[ "${lines[0]}" == "tar c --one-file-system ." ]]
+	[[ "${lines[1]}" == "tar c --one-file-system ." ]]
+	[[ "${lines[2]}" == "tar c --one-file-system --verbose ." ]]
 }
 @test "transient-file-view: mount error handling" {
 	function MOCK_MOUNT {
@@ -439,9 +454,9 @@ function runAssertSameAsLast {
 	[ "$status" -eq 0 ]
 	[[ "$output" =~ HEY ]]
 	echo "$output" | grep -qF "Acting on folder \"$tmpdir\"."
-	[[ "$output" =~ Running:\ rsync\ -.*\ --progress ]]
-	# to-chk is included in rsync --progress, thus check for that
-	[[ "$output" =~ to-chk ]]
+	[[ "$output" =~ Running:\ tar\ -.*\ --verbose ]]
+	# ./a is included in the tar verbose output, thus check for that
+	[[ "$output" =~ \./a ]]
 }
 @test "transient-file-view: Prepends -- to unshare call" {
 	{
@@ -477,17 +492,18 @@ function runAssertSameAsLast {
 @test "transient-file-view: snapshot with toleratepartialtransfer" {
 	{
 		echo '#!/bin/bash'
-		echo 'exit 23'
-	} > "$tmpbindir"/rsync
-	chmod +x "$tmpbindir"/rsync
-
-	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir" -- true
-	[ "$status" -eq 255 ]
-	[ "$output" == "Error: rsync to create the snapshot failed." ]
+		# shellcheck disable=SC2016
+		echo '[[ "$1" == "c" ]] && echo "tar $@" >> '"$tmpbindir"'/tar-c.log'
+		echo 'true'
+	} > "$tmpbindir"/tar
+	chmod +x "$tmpbindir"/tar
 
 	run env PATH="$tmpbindir:$PATH" "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,toleratepartialtransfer" -- true
 	[ "$status" -eq 0 ]
 	[ "$output" == "" ]
+
+	run cat "$tmpbindir/tar-c.log"
+	[[ "$output" == 'tar c --one-file-system --ignore-failed-read .' ]]
 }
 @test "transient-file-view: Overlay --debug" {
 	# Workaround for a shellcheck 0.7.2 bug

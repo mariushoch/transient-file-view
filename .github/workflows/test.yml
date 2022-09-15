@@ -7,6 +7,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install test dependencies
-        run: sudo apt-get install shellcheck bats rsync fuse-overlayfs findutils util-linux
+        run: sudo apt-get install shellcheck bats tar fuse-overlayfs findutils util-linux
       - name: run test.sh
         run: sh test.sh

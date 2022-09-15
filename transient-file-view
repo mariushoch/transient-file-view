@@ -2,8 +2,8 @@
 
 NEXT_OPTION_LOOKAHEAD='(?=,exclude=.|,snapshot|,overlay|,toleratepartialtransfer|$)'
 
-function silent {
-	"$@" >/dev/null 2>&1
+function silence_stderr {
+	"$@" 2>/dev/null
 	return $?
 }
 
@@ -70,7 +70,7 @@ function usage {
 	echo
 	echo "Create transient views of files or directories in a user namespace. This creates a new mount namespace with"
 	echo "transient versions of the given files or directories."
-	echo "For directories these views are either temporary snapshots (\"snapshot\") created by rsync-ing the folder content"
+	echo "For directories these views are either temporary snapshots (\"snapshot\") created by tar-ing the folder content"
 	echo "into a tmpfs mount, or overlays (\"overlay\") created by fuse-overlayfs."
 	echo
 	echo -e "\t--help			Show this help"
@@ -86,9 +86,9 @@ function usage {
 	echo -e "\t\"snapshot\" to create a tmporary snapshot of the directory in a new tmpfs (mutually exclusive with \"overlay\")."
 	echo -e "\t\"overlay\" to use fuse-overlayfs for the directory view (mutually exclusive with \"snapshot\")."
 	echo -e "directory \"snapshot\" mode only:"
-	echo -e "\t\"exclude\" PATTERN is passed to \"rsync\" to determine which files not to sync into the snapshot."
-	echo -e "\t\t(rsync --exclude), can be given multiple times."
-	echo -e "\t\"toleratepartialtransfer\" if set, don't fail on partial transfer errors (exit code 23/24 from rsync)."
+	echo -e "\t\"exclude\" PATTERN is passed to \"tar\" to determine which files not to sync into the snapshot."
+	echo -e "\t\t(tar --exclude), can be given multiple times."
+	echo -e "\t\"toleratepartialtransfer\" if set, don't fail on partial transfers (tar --ignore-failed-read)."
 }
 
 function mount_oldroot {
@@ -121,11 +121,6 @@ function handle_directory {
 		echo "Acting on folder \"$DIRECTORY\"." >&2
 	fi
 
-	# This is equal to rsync -a (but -g and -o)
-	local RSYNC_ARGS=("-rlptD")
-	# Performance: Don't checksum the newly copied files
-	RSYNC_ARGS+=("--checksum-choice=none")
-
 	local OVERLAY=0
 	if [[ "$DIRECTORY_OPTIONS" =~ ,overlay(,|$) ]]; then
 		if [[ "$DIRECTORY_OPTIONS" =~ ,snapshot(,|$) ]]; then
@@ -135,8 +130,8 @@ function handle_directory {
 		OVERLAY=1
 	fi
 
+	local TAR_ARGS=("--one-file-system")
 	local OVERLAYFS_ARGS=("-o" "squash_to_gid=0" "-o" "squash_to_uid=0")
-	local TOLERATE_PARTIAL_TRANSFER=0
 	local exclude excludes
 	while read -r exclude; do
 		excludes+=("$exclude")
@@ -151,32 +146,29 @@ function handle_directory {
 		fi
 
 		if [[ "$DIRECTORY_OPTIONS" =~ ,toleratepartialtransfer(,|$) ]]; then
-			TOLERATE_PARTIAL_TRANSFER=1
+			TAR_ARGS+=("--ignore-failed-read")
 		fi
 
 		for exclude in "${excludes[@]}"; do
-			RSYNC_ARGS+=("--exclude" "$exclude")
+			TAR_ARGS+=("--exclude" "$exclude")
 		done
 
-		RSYNC_ARGS+=("$MAIN_TMP_DIR/oldroot/$DIRECTORY/" "$DIRECTORY")
-
 		if [ "$DEBUG" -gt 0 ]; then
-			RSYNC_ARGS+=("--progress")
-			echo "Running: rsync ${RSYNC_ARGS[*]}" >&2
+			TAR_ARGS+=("--verbose")
+			echo "Running: tar ${TAR_ARGS[*]}" >&2
 		fi
 
-		local RSYNC_WRAP=""
+		local TAR_WRAP=""
 		if [ "$VERBOSE" -eq 0 ]; then
-			RSYNC_WRAP="silent"
+			TAR_WRAP="silence_stderr"
 		fi
-		$RSYNC_WRAP rsync "${RSYNC_ARGS[@]}"
-		local RSYNC_STATUS=$?
-		if [ $RSYNC_STATUS -gt 0 ]; then
-			if [ $TOLERATE_PARTIAL_TRANSFER -eq 0 ] || { [ $RSYNC_STATUS -ne 23 ] && [ $RSYNC_STATUS -ne 24 ]; }; then
-				echo "Error: rsync to create the snapshot failed." >&2
-				return 255
-			fi
+		set -o pipefail
+		if ! (cd "$MAIN_TMP_DIR/oldroot/$DIRECTORY"; $TAR_WRAP tar c "${TAR_ARGS[@]}" . ) | (cd "$DIRECTORY/" ; $TAR_WRAP tar x --no-same-owner ); then
+			set +o pipefail
+			echo "Error: tar to fill the snapshot failed." >&2
+			return 255
 		fi
+		set +o pipefail
 	else
 		if ! command -v fuse-overlayfs >/dev/null; then
 			echo 'Error: fuse-overlayfs is needed for directory overlays.' >&2

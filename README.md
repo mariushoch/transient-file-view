@@ -1,7 +1,7 @@
 # Transient File View
 Create transient views of directories in a user namespace. This creates a new mount namespace with transient versions of the given files or directories.
 
-For directories these views are either temporary snapshots ("snapshot") created by rsync-ing the folder content into a tmpfs mount, or overlays ("overlay") created by [fuse-overlayfs](https://github.com/containers/fuse-overlayfs).
+For directories these views are either temporary snapshots ("snapshot") created by tar-ing the folder content into a tmpfs mount, or overlays ("overlay") created by [fuse-overlayfs](https://github.com/containers/fuse-overlayfs).
 
 This can, for example, be used to run tests against older versions of a software, without having to actually check out the old version, or for safely running experimental versions of a software with actual user data.
 
@@ -12,7 +12,7 @@ Usage: transient-file-view [--help] [--verbose|--debug] file [file]* [-- command
 
 Create transient views of files or directories in a user namespace. This creates a new mount namespace with
 transient versions of the given files or directories.
-For directories these views are either temporary snapshots ("snapshot") created by rsync-ing the folder content
+For directories these views are either temporary snapshots ("snapshot") created by tar-ing the folder content
 into a tmpfs mount, or overlays ("overlay") created by fuse-overlayfs.
 
         --help                  Show this help
@@ -28,9 +28,9 @@ for directories only:
         "snapshot" to create a tmporary snapshot of the directory in a new tmpfs (mutually exclusive with "overlay").
         "overlay" to use fuse-overlayfs for the directory view (mutually exclusive with "snapshot").
 directory "snapshot" mode only:
-        "exclude" PATTERN is passed to "rsync" to determine which files not to sync into the snapshot.
-                (rsync --exclude), can be given multiple times.
-        "toleratepartialtransfer" if set, don't fail on partial transfer errors (exit code 23/24 from rsync).
+        "exclude" PATTERN is passed to "tar" to determine which files not to sync into the snapshot.
+                (tar --exclude), can be given multiple times.
+        "toleratepartialtransfer" if set, don't fail on partial transfers (tar --ignore-failed-read).
 ```
 
 ### Example
