@@ -16,7 +16,7 @@ function clean_final {
 	set_oldroot_path
 
 	cd /
-	local dir
+	local dir bind_mount
 	for dir in "${FINAL_FUSER_UMOUNT_DIRS[@]}"; do
 		fusermount -u "$dir" 2>/dev/null
 		if [[ "$(findmnt --noheadings -o FSTYPE "$dir")" == "fuse.fuse-overlayfs" ]]; then
@@ -24,7 +24,8 @@ function clean_final {
 		fi
 	done
 	for bind_mount in "${FINAL_BIND_UMOUNTS[@]}"; do
-		if ! umount "$bind_mount" 2>/dev/null; then
+		if ! umount "$bind_mount" 2>/dev/null && ! umount -l "$bind_mount" 2>/dev/null &&
+			[[ "$(findmnt --noheadings -o FSTYPE "$bind_mount")" == "tmpfs" ]]; then
 			echo "Error: Failed to umount \"$bind_mount\", aborting." >&2
 			exit 1
 		fi
