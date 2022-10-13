@@ -70,6 +70,14 @@ function runAssertSameAsLast {
 	[ "$(cat "$tmpdir"/a)" == "0" ]
 	[ "$(cat "$tmpdir"/b)" == "2" ]
 }
+@test "transient-file-view: File mode" {
+	echo 0 > "$tmpdir"/a
+	chmod 743 "$tmpdir"/a
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir/a" -- stat --printf '%a' "$tmpdir"/a
+
+	[ "$status" -eq 0 ]
+	[ "$output" == "743" ]
+}
 @test "transient-file-view: File debug" {
 	echo 0 > "$tmpdir"/FILENAME
 	run "$BATS_TEST_DIRNAME"/transient-file-view --debug "$tmpdir/FILENAME" -- true
@@ -563,9 +571,9 @@ function runAssertSameAsLast {
 	[[ "$output" == "1" ]]
 }
 @test "transient-file-view: Snapshot tar, mount, umount, rm" {
-	run "$BATS_TEST_DIRNAME"/transient-file-view "$(command -v tar)" "$(command -v mount)" "$(command -v umount)" "$(command -v rm)" -- echo 1
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$(command -v tar)" "$(command -v mount)" "$(command -v umount)" "$(command -v rm)" -- rm --version
 	[ "$status" -eq 0 ]
-	[[ "$output" == "1" ]]
+	[[ "$output" == "$(rm --version)" ]]
 }
 @test "transient-file-view: Keeps \$PATH intact" {
 	overlay_maybe=',overlay'

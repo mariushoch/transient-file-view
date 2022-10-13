@@ -223,6 +223,8 @@ function handle_file {
 	if ! assert_valid_file "$FILE"; then
 		return 1
 	fi
+	local ORIGINAL_FILE_MODE
+	ORIGINAL_FILE_MODE="$(stat --printf '%a' "$FILE")"
 
 	if [ "$DEBUG" -gt 0 ]; then
 		echo "Acting on file \"$FILE\"." >&2
@@ -237,6 +239,7 @@ function handle_file {
 		echo "Error: Mounting \"$TMP_FILE\" to \"$FILE\": \"$MOUNT_OUT\"." >&2
 		return 255
 	fi
+	chmod "$ORIGINAL_FILE_MODE" "$FILE"
 	FINAL_BIND_UMOUNTS+=("$FILE")
 }
 
