@@ -111,7 +111,7 @@ function runAssertSameAsLast {
 }
 @test "transient-file-view: No leftovers in /tmp" {
 	tmp="$(dirname "$(mktemp -u --tmpdir -d)")"
-	tmpFilesPrior="$(find "$tmp" -maxdepth 1 -name '*transient--view*' 2>/dev/null | wc -l)"
+	tmpFilesPrior="$(find "$tmp" -maxdepth 1 -name '*transient-file-view*' 2>/dev/null | wc -l)"
 
 	# snapshot success
 	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir,snapshot" -- true
@@ -561,6 +561,25 @@ function runAssertSameAsLast {
 	run "$BATS_TEST_DIRNAME"/transient-file-view /usr,overlay -- echo 1
 	[ "$status" -eq 0 ]
 	[[ "$output" == "1" ]]
+}
+@test "transient-file-view: Snapshot tar, mount, umount, rm" {
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$(command -v tar)" "$(command -v mount)" "$(command -v umount)" "$(command -v rm)" -- echo 1
+	[ "$status" -eq 0 ]
+	[[ "$output" == "1" ]]
+}
+@test "transient-file-view: Keeps \$PATH intact" {
+	overlay_maybe=',overlay'
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
+		overlay_maybe=''
+	fi
+	mkdir "$tmpdir/a" "$tmpdir/b"
+	touch "$tmpdir/file"
+	# shellcheck disable=SC2016
+	run "$BATS_TEST_DIRNAME"/transient-file-view "$tmpdir/a" "$tmpdir/b$overlay_maybe" "$tmpdir/file" -- sh -c 'echo $PATH'
+	[ "$status" -eq 0 ]
+	[[ "$output" == "$PATH" ]]
 }
 @test "transient-file-view: Overlay fuse-overlayfs error handling" {
 	{
