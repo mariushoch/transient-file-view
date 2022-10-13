@@ -552,6 +552,16 @@ function runAssertSameAsLast {
 	[ "$status" -eq 0 ]
 	[[ "$output" == "$UID-$GID" ]]
 }
+@test "transient-file-view: Overlay all of /usr" {
+	# Workaround for a shellcheck 0.7.2 bug
+	# shellcheck disable=SC2030,SC2031
+	if [ -z "$can_use_fuse_overlayfs" ]; then
+		skip
+	fi
+	run "$BATS_TEST_DIRNAME"/transient-file-view /usr,overlay -- echo 1
+	[ "$status" -eq 0 ]
+	[[ "$output" == "1" ]]
+}
 @test "transient-file-view: Overlay fuse-overlayfs error handling" {
 	{
 		echo '#!/bin/bash'

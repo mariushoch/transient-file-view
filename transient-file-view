@@ -16,6 +16,9 @@ function clean_final {
 	local dir
 	for dir in "${FINAL_FUSER_UMOUNT_DIRS[@]}"; do
 		fusermount -u "$dir" 2>/dev/null
+		if [[ "$(findmnt --noheadings -o FSTYPE "$dir")" == "fuse.fuse-overlayfs" ]]; then
+			fusermount -z -u "$dir" 2>/dev/null
+		fi
 	done
 	for dir in "${FINAL_UMOUNT_DIRS[@]}"; do
 		if ! findmnt "$dir" > /dev/null; then
@@ -65,7 +68,7 @@ function assert_valid_file {
 }
 
 function usage {
-	echo "Transient File View 0.6.0"
+	echo "Transient File View 0.6.1-PRE"
 	echo "Usage: $(basename "$0") [--help] [--verbose|--debug] file [file]* [-- command [ARG]...]"
 	echo
 	echo "Create transient views of files or directories in a user namespace. This creates a new mount namespace with"
