@@ -9,7 +9,7 @@ function silence_stderr {
 }
 
 FINAL_FUSER_UMOUNT_DIRS=()
-FINAL_UMOUNT_DIRS=()
+FINAL_UMOUNT_DIR=
 FINAL_BIND_UMOUNTS=()
 function clean_final {
 	exitCode=$?
@@ -23,6 +23,7 @@ function clean_final {
 			fusermount -z -u "$dir" 2>/dev/null
 		fi
 	done
+
 	for bind_mount in "${FINAL_BIND_UMOUNTS[@]}"; do
 		if ! umount "$bind_mount" 2>/dev/null && ! umount -l "$bind_mount" 2>/dev/null &&
 			[[ "$(findmnt --noheadings -o FSTYPE "$bind_mount")" == "tmpfs" ]]; then
@@ -30,15 +31,15 @@ function clean_final {
 			exit 1
 		fi
 	done
-	for dir in "${FINAL_UMOUNT_DIRS[@]}"; do
-		if ! findmnt "$dir" > /dev/null; then
-			continue
-		fi
+
+	dir="$FINAL_UMOUNT_DIR"
+	if findmnt "$dir" > /dev/null; then
 		if ! umount "$dir" 2>/dev/null && ! umount -l "$dir" 2>/dev/null && findmnt "$dir" 2>/dev/null; then
 			echo "Error: Failed to umount \"$dir\", aborting." >&2
 			exit 1
 		fi
-	done
+	fi
+
 	rm --one-file-system -rf "$MAIN_TMP_DIR"
 
 	exit "$exitCode"
@@ -108,7 +109,7 @@ function mount_oldroot {
 	local MOUNT_PATH MOUNT_OUT MOUNT_STATUS
 	MOUNT_PATH="$MAIN_TMP_DIR/oldroot"
 	mkdir -p "$MOUNT_PATH"
-	FINAL_UMOUNT_DIRS+=("$MOUNT_PATH")
+	FINAL_UMOUNT_DIR="$MOUNT_PATH"
 	MOUNT_OUT="$(LC_ALL=C mount --rbind -o ro / "$MOUNT_PATH" 2>&1)"
 	MOUNT_STATUS=$?
 	if [ $MOUNT_STATUS -eq 32 ] && [[ "$MOUNT_OUT" =~ was\ mounted,\ but\ any\ subsequent\ operation\ failed ]]; then
